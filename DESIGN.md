@@ -23,6 +23,25 @@ The main view is a strategic map of your codebase.
 
 Each tile represents a file or directory. Tiles are arranged in a zoomable, pannable 2D space.
 
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         src/                                     │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐    │
+│  │   auth/   │  │   api/    │  │  models/  │  │  utils/   │    │
+│  │  ░░░░░░░  │  │  ████████ │  │  ██████░░ │  │  ████████ │    │
+│  │  3 files  │  │  8 files  │  │  5 files  │  │  12 files │    │
+│  └───────────┘  └───────────┘  └───────────┘  └───────────┘    │
+│        │              │              │              │           │
+│        └──────────────┼──────────────┘              │           │
+│                       │                              │           │
+│                       ▼                              │           │
+│                 ┌───────────┐                        │           │
+│                 │  index.ts │◄───────────────────────┘           │
+│                 │  ████████ │                                    │
+│                 └───────────┘                                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 #### Zoom Levels
 
 | Level | Name | Shows | Interaction |
@@ -312,6 +331,40 @@ Ongoing maintenance tasks that are always valuable. These regenerate as you comp
 - Sourced from: static analysis, metrics trends, advisor scans
 
 ### Mission UI
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ 📜 MAIN QUEST: Fix Authentication Pipeline                          │
+│    P0 - Critical | Source: CI Failure + GitHub Issue #142           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  🛡️ Security Advisor: "The auth tests are failing in CI.           │
+│     Token refresh logic needs to handle edge cases."                │
+│                                                                      │
+│  ═══════════════════════════════════════════════════                │
+│  OBJECTIVES                                      Progress            │
+│  ═══════════════════════════════════════════════════                │
+│                                                                      │
+│  ✓ Identify failing tests                       [████████████] Done │
+│  ✓ Reproduce locally                            [████████████] Done │
+│  ○ Fix token refresh logic                      [████░░░░░░░░]  33% │
+│  ○ Add edge case tests (2/5)                    [████████░░░░]  40% │
+│  ○ CI passes                                    [░░░░░░░░░░░░]   0% │
+│                                                                      │
+│  ───────────────────────────────────────────────────────────────    │
+│  OVERALL: [████████████████░░░░░░░░░░░░░░] 55%                      │
+│                                                                      │
+│  ═══════════════════════════════════════════════════                │
+│  AFFECTED FILES                                                      │
+│  ═══════════════════════════════════════════════════                │
+│  • src/auth/token.ts                                                │
+│  • src/auth/refresh.ts                                              │
+│  • tests/auth/token.test.ts                                         │
+│                                                                      │
+│  ───────────────────────────────────────────────────────────────    │
+│  [💡 Ask Advisor] [📋 View Issue] [🚫 Dismiss]                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 The mission panel shows:
 - **Active missions**: Currently accepted/in-progress
