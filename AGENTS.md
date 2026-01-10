@@ -18,6 +18,21 @@ This script will:
 
 The script is idempotent - safe to run multiple times.
 
+## Web Claude Code (No Daemon Mode)
+
+When running in web-based Claude Code environments, the beads daemon may have database locking issues. Set the `BEADS_NO_DAEMON` environment variable:
+
+```bash
+export BEADS_NO_DAEMON=1
+bd ready
+```
+
+Or prefix individual commands:
+
+```bash
+BEADS_NO_DAEMON=1 bd create --title="New task" --type=task
+```
+
 ## Quick Reference
 
 ```bash
