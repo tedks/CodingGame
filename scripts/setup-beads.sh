@@ -7,6 +7,7 @@
 #
 # Usage:
 #   ./scripts/setup-beads.sh
+#   ./scripts/setup-beads.sh --no-daemon  # For web Claude Code environments
 #
 # What this script does:
 #   1. Installs the bd CLI if not already installed
@@ -17,6 +18,14 @@
 # For more information: https://github.com/steveyegge/beads
 
 set -euo pipefail
+
+# Handle --no-daemon flag for web Claude Code environments
+NO_DAEMON=""
+if [[ "${1:-}" == "--no-daemon" ]]; then
+    NO_DAEMON="1"
+    export BEADS_NO_DAEMON=1
+    echo "Running in no-daemon mode (for web Claude Code environments)"
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -97,3 +106,10 @@ echo "  bd close <id>         # Complete work"
 echo "  bd sync               # Sync with git"
 echo ""
 echo "For more info: bd help"
+echo ""
+if [[ -n "$NO_DAEMON" ]]; then
+    echo "NOTE: Running in no-daemon mode. Remember to prefix bd commands with:"
+    echo "  export BEADS_NO_DAEMON=1"
+else
+    echo "TIP: If running in web Claude Code, use: export BEADS_NO_DAEMON=1"
+fi
