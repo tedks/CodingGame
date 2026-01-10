@@ -2,6 +2,22 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## First-Time Setup
+
+If beads is not yet installed on your machine, run the setup script:
+
+```bash
+./scripts/setup-beads.sh
+```
+
+This script will:
+1. Install the `bd` CLI if not already installed
+2. Initialize beads in the repository (if needed)
+3. Install git hooks for automatic sync
+4. Set up Claude Code integration (if detected)
+
+The script is idempotent - safe to run multiple times.
+
 ## Quick Reference
 
 ```bash
