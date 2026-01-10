@@ -58,13 +58,27 @@ if command -v bd &> /dev/null; then
     info "bd is already installed: $BD_VERSION"
 else
     info "Installing bd CLI..."
-    curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
+    warn "About to download and execute installation script from GitHub"
+    warn "Repository: https://github.com/steveyegge/beads"
+    warn "Press Ctrl+C within 3 seconds to cancel..."
+    sleep 3
+
+    # Note: This downloads and executes a remote script.
+    # For production use, consider:
+    # - Pinning to a specific commit/tag instead of 'main'
+    # - Verifying checksums of downloaded artifacts
+    # - Using a package manager (when available)
+    # - Manually reviewing the install script first
+    if curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash; then
+        info "bd installed successfully"
+    else
+        error "Failed to install bd. Please install manually: https://github.com/steveyegge/beads"
+    fi
 
     # Verify installation
     if ! command -v bd &> /dev/null; then
-        error "Failed to install bd. Please install manually: https://github.com/steveyegge/beads"
+        error "Failed to verify bd installation. Please check your PATH or install manually: https://github.com/steveyegge/beads"
     fi
-    info "bd installed successfully"
 fi
 
 # Step 2: Initialize beads if not already initialized
@@ -72,28 +86,51 @@ if [[ -d ".beads" ]]; then
     info "Beads already initialized in this repository"
 else
     info "Initializing beads..."
-    bd init
-    info "Beads initialized"
+    if bd init; then
+        info "Beads initialized"
+    else
+        error "Failed to initialize beads"
+    fi
 fi
 
 # Step 3: Install git hooks
 info "Installing git hooks..."
-bd hooks install
-info "Git hooks installed"
+if bd hooks install; then
+    info "Git hooks installed"
+else
+    warn "Failed to install git hooks (continuing anyway)"
+fi
+
+# Step 3.5: Configure git merge driver for beads
+info "Configuring git merge driver for beads..."
+if ! git config --get merge.beads.driver &> /dev/null; then
+    git config merge.beads.driver "bd merge %O %A %B %L %P"
+    git config merge.beads.name "Beads JSONL merge driver"
+    info "Git merge driver configured"
+else
+    info "Git merge driver already configured"
+fi
 
 # Step 4: Set up Claude Code integration if available
 if [[ -d "$HOME/.claude" ]]; then
     info "Claude Code detected, setting up integration..."
-    bd setup claude
-    info "Claude Code integration configured"
-    warn "Restart Claude Code for hook changes to take effect"
+    if bd setup claude; then
+        info "Claude Code integration configured"
+        warn "Restart Claude Code for hook changes to take effect"
+    else
+        warn "Failed to set up Claude Code integration (continuing anyway)"
+    fi
 else
     info "Claude Code not detected, skipping integration setup"
 fi
 
 # Step 5: Run doctor to check for any remaining issues
 info "Running bd doctor to verify setup..."
-bd doctor || true
+if bd doctor; then
+    info "Setup verified successfully"
+else
+    warn "Some issues detected - check output above"
+fi
 
 echo ""
 info "Beads setup complete!"

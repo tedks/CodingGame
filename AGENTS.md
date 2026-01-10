@@ -28,7 +28,7 @@
 
 ## Beads Issue Tracking
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **bd** (beads) for issue tracking. Run `bd ready` to get started.
 
 ## First-Time Setup
 
