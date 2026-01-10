@@ -1,31 +1,5 @@
 # Agent Instructions
 
-## Project Overview
-
-**CodingGame** is a strategy game-style UI wrapper for Claude Code, inspired by Civilization/Factorio. It transforms software development into an intuitive strategy game experience.
-
-**Core Principle:** This is a *game interface to coding*, NOT gamification. Everything is real:
-- No fake bonuses or stats - metrics are actual build times, test results, coverage
-- Descriptive, not prescriptive - shows what exists, not what you've "unlocked"
-- Real subagents, real tools, real data flow
-
-**Visual Metaphors:**
-| Game Element | Real Thing |
-|-------------|------------|
-| Map/Tiles | Codebase (files & directories) |
-| Buildings | Build targets (package.json, Cargo.toml) |
-| Units | Tests ("fighting" to pass) |
-| Advisors | Subagents you configure |
-| Belts | Dependency/data flow (Factorio-style) |
-| Fog of War | Context boundary |
-| Tech Tree | Capability inventory (tools, MCPs) |
-
-**Key Files:**
-- `DESIGN.md` - Full design specification
-- `PHILOSOPHY.md` - Core principles and metaphors
-
----
-
 ## Beads Issue Tracking
 
 This project uses **bd** (beads) for issue tracking. Run `bd ready` to get started.
@@ -96,4 +70,3 @@ bd sync               # Sync with git
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
-
