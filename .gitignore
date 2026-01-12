@@ -1,0 +1,4 @@
+# beads database (JSONL is tracked)
+.beads/*.db
+.beads/*.db-wal
+.beads/*.db-shm
