@@ -6,6 +6,7 @@ go_library(
     importpath = "github.com/tedks/CodingGame/internal/game",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/advisor",
         "//internal/claude",
         "//internal/mapview",
         "//internal/resources",
