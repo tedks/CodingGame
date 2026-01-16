@@ -91,24 +91,46 @@ Technical specification for implementing the CodingGame strategy interface.
 
 ### Threading Model
 
-- **Main thread**: SDL2 event loop + rendering
-- **Agent threads**: One per Claude subprocess (main agent + advisors)
-- **Communication**: Channel-based message passing (no shared mutable state)
+- **Main thread**: Ebitengine game loop (Update/Draw on main OS thread)
+- **Agent goroutines**: One per Claude subprocess (main agent + advisors)
+- **Communication**: Go channel-based message passing (no shared mutable state between goroutines)
 
-```rust
+```go
 // Pseudocode for agent communication
-enum AgentMessage {
-    ToolUse { tool: String, input: Value },
-    ToolResult { tool: String, output: Value },
-    TextDelta { text: String },
-    TurnComplete { response: String },
-    Error { message: String },
+
+type AgentMessageType int
+
+const (
+    AgentMessageToolUse AgentMessageType = iota
+    AgentMessageToolResult
+    AgentMessageTextDelta
+    AgentMessageTurnComplete
+    AgentMessageError
+)
+
+type AgentMessage struct {
+    Type     AgentMessageType
+    Tool     string
+    Input    interface{} // tool input payload
+    Output   interface{} // tool output payload
+    Text     string
+    Response string
+    Error    string
 }
 
-enum GameCommand {
-    StartTurn { prompt: String },
-    CancelTurn,
-    ConsultAdvisor { advisor_id: String, query: String },
+type GameCommandType int
+
+const (
+    GameCommandStartTurn GameCommandType = iota
+    GameCommandCancelTurn
+    GameCommandConsultAdvisor
+)
+
+type GameCommand struct {
+    Type      GameCommandType
+    Prompt    string
+    AdvisorID string
+    Query     string
 }
 ```
 
@@ -358,53 +380,78 @@ While Claude works, show:
 
 ## Data Structures
 
-### Core Types (Rust pseudocode)
+### Core Types (Go pseudocode)
 
-```rust
-struct GameState {
-    map: MapState,
-    agents: AgentPool,
-    turn: TurnState,
-    notifications: Vec<Notification>,
-    config: GameConfig,
+```go
+type GameState struct {
+    Map           MapState
+    Agents        AgentPool
+    Turn          TurnState
+    Notifications []Notification
+    Config        GameConfig
 }
 
-struct MapState {
-    view_mode: ViewMode,  // Directory | Dataflow
-    camera: Camera,       // position, zoom level
-    tiles: HashMap<PathBuf, TileState>,
-    connections: Vec<Connection>,  // for dataflow view
+type MapState struct {
+    ViewMode    ViewMode // Directory | Dataflow
+    Camera      Camera   // position, zoom level
+    Tiles       map[string]TileState
+    Connections []Connection // for dataflow view
 }
 
-enum TileState {
-    Fogged,
-    Revealed {
-        read_at: Instant,
-        token_estimate: usize,
-    },
-    Stale {
-        summarized_at: Instant,
-    },
+type TileState interface {
+    isTileState()
 }
 
-struct AgentPool {
-    main: AgentHandle,
-    advisors: HashMap<String, AdvisorHandle>,
+type Fogged struct{}
+
+type Revealed struct {
+    ReadAt        time.Time
+    TokenEstimate int
 }
 
-struct AgentHandle {
-    process: Child,
-    tx: Sender<GameCommand>,
-    rx: Receiver<AgentMessage>,
-    state: AgentState,
+type Stale struct {
+    SummarizedAt time.Time
 }
 
-enum TurnState {
-    Idle,
-    Composing { buffer: String },
-    Executing { started: Instant, tool_log: Vec<ToolCall> },
-    Reviewing { response: String },
+func (Fogged) isTileState()   {}
+func (Revealed) isTileState() {}
+func (Stale) isTileState()    {}
+
+type AgentPool struct {
+    Main     AgentHandle
+    Advisors map[string]AdvisorHandle
 }
+
+type AgentHandle struct {
+    Process *os.Process
+    Tx      chan GameCommand
+    Rx      chan AgentMessage
+    State   AgentState
+}
+
+type TurnState interface {
+    isTurnState()
+}
+
+type Idle struct{}
+
+type Composing struct {
+    Buffer string
+}
+
+type Executing struct {
+    Started time.Time
+    ToolLog []ToolCall
+}
+
+type Reviewing struct {
+    Response string
+}
+
+func (Idle) isTurnState()      {}
+func (Composing) isTurnState() {}
+func (Executing) isTurnState() {}
+func (Reviewing) isTurnState() {}
 ```
 
 ---
@@ -413,35 +460,32 @@ enum TurnState {
 
 ```
 codinggame/
-├── Cargo.toml
-├── src/
-│   ├── main.rs              # Entry point, SDL2 init
-│   ├── game/
-│   │   ├── mod.rs
-│   │   ├── state.rs         # GameState management
-│   │   ├── turn.rs          # Turn state machine
-│   │   └── config.rs        # Configuration loading
-│   ├── render/
-│   │   ├── mod.rs
-│   │   ├── map.rs           # Map rendering (both views)
-│   │   ├── ui.rs            # UI panels, prompt window
-│   │   ├── animations.rs    # Belt flow, highlights
-│   │   └── text.rs          # Text rendering utilities
-│   ├── input/
-│   │   ├── mod.rs
-│   │   ├── keyboard.rs      # Keybinding system
-│   │   └── mouse.rs         # Click/drag handling
-│   ├── agents/
-│   │   ├── mod.rs
-│   │   ├── manager.rs       # Agent pool management
-│   │   ├── claude.rs        # Claude subprocess wrapper
-│   │   ├── parser.rs        # JSON stream parsing
-│   │   └── advisor.rs       # Advisor-specific logic
-│   └── map/
-│       ├── mod.rs
-│       ├── directory.rs     # Directory view logic
-│       ├── dataflow.rs      # Dataflow/belt view logic
-│       └── fog.rs           # Fog of war tracking
+├── go.mod                   # Go module definition
+├── go.sum                   # Go dependency checksums
+├── BUILD.bazel              # Bazel build configuration (optional)
+├── WORKSPACE                # Bazel workspace (optional)
+├── main.go                  # Entry point, Ebitengine init
+├── game/
+│   ├── state.go             # GameState management
+│   ├── turn.go              # Turn state machine
+│   └── config.go            # Configuration loading
+├── render/
+│   ├── map.go               # Map rendering (both views)
+│   ├── ui.go                # UI panels, prompt window
+│   ├── animations.go        # Belt flow, highlights
+│   └── text.go              # Text rendering utilities
+├── input/
+│   ├── keyboard.go          # Keybinding system
+│   └── mouse.go             # Click/drag handling
+├── agents/
+│   ├── manager.go           # Agent pool management
+│   ├── claude.go            # Claude subprocess wrapper
+│   ├── parser.go            # JSON stream parsing
+│   └── advisor.go           # Advisor-specific logic
+├── mapview/
+│   ├── directory.go         # Directory view logic
+│   ├── dataflow.go          # Dataflow/belt view logic
+│   └── fog.go               # Fog of war tracking
 ├── assets/
 │   ├── fonts/
 │   ├── sprites/
@@ -451,12 +495,14 @@ codinggame/
     └── advisors.json        # Advisor definitions
 ```
 
+**Build System**: The project uses Go modules for dependency management. Bazel support is optional for advanced build scenarios.
+
 ---
 
 ## Open Questions
 
 ### Resolved
-- **Framework**: SDL2 + Rust
+- **Framework**: Ebitengine + Go
 - **Claude integration**: `claude --output-format json` + hooks
 - **Advisor contexts**: Separate per-advisor, smaller focused contexts
 - **Map views**: Directory view + Dataflow view (toggle)
@@ -464,7 +510,7 @@ codinggame/
 - **Advisor triggers**: Default to `manual` for Phase 0. Add `on_file_change` later.
 - **Dataflow source**: LSP-first approach (see below)
 - **Asset style**: Minimal geometric (rectangles, lines, text). Theming/pixel art later.
-- **Rendering target**: SDL2 GUI first, TUI port planned for later
+- **Rendering target**: Ebitengine GUI first, TUI port planned for later
 
 ### Dataflow Implementation Notes
 
@@ -622,20 +668,20 @@ Claude's response display adapts to window dimensions:
 ### Initial Scan
 On project open, scan directory structure:
 
-```rust
-struct ProjectScan {
-    root: PathBuf,
-    files: Vec<FileEntry>,
-    directories: Vec<DirEntry>,
-    gitignore: Option<GitIgnore>,  // respect .gitignore
-    scan_time: Instant,
+```go
+type ProjectScan struct {
+    Root        string
+    Files       []FileEntry
+    Directories []DirEntry
+    GitIgnore   *GitIgnore // respect .gitignore (nil if not present)
+    ScanTime    time.Time
 }
 
-struct FileEntry {
-    path: PathBuf,
-    size: u64,
-    modified: SystemTime,
-    file_type: FileType,  // source, config, asset, etc.
+type FileEntry struct {
+    Path     string
+    Size     int64
+    Modified time.Time
+    FileType FileType // source, config, asset, etc.
 }
 ```
 
@@ -665,7 +711,7 @@ project/
 Minimal viable demo to validate the concept:
 
 ### 0.1 Window & Rendering
-- [ ] SDL2 window initialization
+- [ ] Ebitengine game initialization
 - [ ] Basic render loop (60fps cap, dirty rect tracking)
 - [ ] Text rendering (monospace font)
 - [ ] Responsive layout detection (wide vs narrow)
