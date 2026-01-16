@@ -20,31 +20,45 @@ CodingGame is a **game interface to coding**, not a game about coding. It uses g
 
 ## Quick Start
 
-### Prerequisites
+### Recommended: Nix + Bazel
 
-- Go 1.21 or later
-- Linux: X11 development libraries (see [BUILD.md](BUILD.md))
-- macOS/Windows: No additional dependencies
-
-### Build & Run
+**Best for**: Reproducible builds, CI/CD, team development
 
 ```bash
 # Clone the repository
 git clone https://github.com/tedks/CodingGame.git
 cd CodingGame
 
-# Install dependencies
-GOPROXY=direct go mod download
+# Enter Nix environment
+nix develop
 
-# Build
+# Build with Bazel
+bazel build //...
+
+# Run the game
+bazel run //:codinggame
+```
+
+**With direnv**: Just `cd CodingGame && direnv allow` and the environment loads automatically!
+
+### Alternative: Go Modules
+
+**Best for**: Quick prototyping, if Nix is not available
+
+```bash
+# Prerequisites: Go 1.21+, X11 libs on Linux
+
+# Clone and build
+git clone https://github.com/tedks/CodingGame.git
+cd CodingGame
+GOPROXY=direct go mod download
 go build -o codinggame .
 
-# Run on current directory
+# Run
 ./codinggame
-
-# Run on specific project
-./codinggame /path/to/project
 ```
+
+See [BUILD.md](BUILD.md) for detailed instructions and system requirements.
 
 ### Controls (Phase 1)
 
@@ -86,6 +100,8 @@ See [DESIGN.md](DESIGN.md) for complete roadmap.
 **Tech Stack:**
 - **Language**: Go (excellent concurrency, LLM-friendly)
 - **UI Framework**: Ebitengine (lightweight, efficient, cross-platform)
+- **Build System**: Bazel (hermetic builds, advanced caching)
+- **Environment**: Nix (reproducible dependencies)
 - **Issue Tracking**: Beads (AI-native, lives in repo)
 
 **Key Components:**
@@ -142,6 +158,22 @@ See [PHILOSOPHY.md](PHILOSOPHY.md) for complete principles.
 ## Development
 
 ### Running Tests
+
+**With Bazel (recommended):**
+
+```bash
+# All tests
+bazel test //...
+
+# Specific packages
+bazel test //internal/tile:tile_test
+bazel test //internal/claude:claude_test
+
+# With verbose output
+bazel test //... --test_output=all
+```
+
+**With Go modules:**
 
 ```bash
 # All tests
