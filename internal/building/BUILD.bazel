@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "building",
+    srcs = ["building.go"],
+    importpath = "github.com/tedks/CodingGame/internal/building",
+    visibility = ["//visibility:public"],
+    deps = ["//internal/build"],
+)
+
+go_test(
+    name = "building_test",
+    srcs = ["building_test.go"],
+    embed = [":building"],
+    deps = ["//internal/build"],
+)
