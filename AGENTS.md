@@ -1,5 +1,7 @@
 # Agent Instructions
 
+> For comprehensive Claude Code agent guidance including project context, code style, and review guidelines, see [CLAUDE.md](CLAUDE.md).
+
 ## Beads Issue Tracking
 
 This project uses **bd** (beads) for issue tracking. Run `bd ready` to get started.
@@ -37,11 +39,13 @@ BEADS_NO_DAEMON=1 bd create --title="New task" --type=task
 
 ## Quick Reference
 
+Issues in this project use the prefix `CodingGame-XXX` (e.g., `CodingGame-w93`, `CodingGame-66a`).
+
 ```bash
 bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
+bd show CodingGame-abc  # View issue details (use actual issue ID)
+bd update CodingGame-abc --status in_progress  # Claim work
+bd close CodingGame-abc  # Complete work
 bd sync               # Sync with git
 ```
 

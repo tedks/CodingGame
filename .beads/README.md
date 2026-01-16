@@ -12,19 +12,21 @@ Beads is issue tracking that lives in your repo, making it perfect for AI coding
 
 ### Essential Commands
 
+Issues in this repository use the prefix `CodingGame-XXX` (e.g., `CodingGame-w93`, `CodingGame-4su`).
+
 ```bash
-# Create new issues
+# Create new issues (auto-generates ID with CodingGame prefix)
 bd create "Add user authentication"
 
 # View all issues
 bd list
 
-# View issue details
-bd show <issue-id>
+# View issue details (use actual issue ID like CodingGame-abc)
+bd show CodingGame-abc
 
 # Update issue status
-bd update <issue-id> --status in_progress
-bd update <issue-id> --status done
+bd update CodingGame-abc --status in_progress
+bd update CodingGame-abc --status done
 
 # Sync with git remote
 bd sync
