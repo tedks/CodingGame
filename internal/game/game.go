@@ -14,6 +14,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/tedks/CodingGame/internal/advisor"
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/resources"
@@ -38,6 +39,9 @@ type Game struct {
 	resources   *resources.Tracker
 	interceptor *claude.Interceptor
 
+	// Phase 3 components
+	advisorPool *advisor.Pool
+
 	// Input state
 	lastMouseX int
 	lastMouseY int
@@ -57,6 +61,12 @@ func New(projectPath string, width, height int) (*Game, error) {
 	// Initialize Claude interceptor
 	interceptor := claude.New()
 
+	// Initialize advisor pool with default advisors (Phase 3)
+	advisorPool := advisor.NewPool()
+	if err := advisorPool.LoadFromConfig(advisor.DefaultConfigs()); err != nil {
+		return nil, fmt.Errorf("failed to load advisor configs: %w", err)
+	}
+
 	g := &Game{
 		projectPath: projectPath,
 		width:       width,
@@ -64,6 +74,7 @@ func New(projectPath string, width, height int) (*Game, error) {
 		mapView:     mapView,
 		resources:   resourceTracker,
 		interceptor: interceptor,
+		advisorPool: advisorPool,
 	}
 
 	// Register event handlers for Claude tool interception
@@ -152,7 +163,8 @@ func (g *Game) handleClaudeEvent(event *claude.Event) {
 			absPath := filepath.Join(g.projectPath, path)
 			// Reveal and highlight the tile
 			g.mapView.RevealTile(absPath)
-			// TODO: Add highlight functionality to mapview
+			// Trigger advisors that watch this file (Phase 3)
+			g.triggerAdvisorsForFile(path)
 		}
 
 	case claude.EventBuildRun:
@@ -164,9 +176,122 @@ func (g *Game) handleClaudeEvent(event *claude.Event) {
 		// TODO: Extract test results and update resources
 
 	case claude.EventSubagentRun:
-		// Show advisor panel activity
-		// TODO: Implement advisor panel
+		// Handle advisor/subagent execution (Phase 3)
+		g.handleAdvisorEvent(event)
 	}
+}
+
+// handleAdvisorEvent processes advisor-related events
+func (g *Game) handleAdvisorEvent(event *claude.Event) {
+	// Extract advisor ID from event data if present
+	advisorID, _ := event.Data["advisor_id"].(string)
+	if advisorID == "" {
+		return
+	}
+
+	adv := g.advisorPool.Get(advisorID)
+	if adv == nil {
+		return
+	}
+
+	// Check if this is a start or completion event
+	if status, ok := event.Data["status"].(string); ok {
+		switch status {
+		case "started":
+			adv.StartAnalysis()
+		case "completed":
+			duration, _ := event.Data["duration_ms"].(float64)
+			tokensIn, _ := event.Data["tokens_in"].(float64)
+			tokensOut, _ := event.Data["tokens_out"].(float64)
+			adv.CompleteAnalysis(
+				durationFromMs(duration),
+				int64(tokensIn),
+				int64(tokensOut),
+				nil,
+			)
+		case "error":
+			errMsg, _ := event.Data["error"].(string)
+			adv.CompleteAnalysis(0, 0, 0, fmt.Errorf("%s", errMsg))
+		}
+	}
+
+	// Check for insights in the event
+	if insightsData, ok := event.Data["insights"].([]interface{}); ok {
+		for _, insightData := range insightsData {
+			if insightMap, ok := insightData.(map[string]interface{}); ok {
+				insight := g.parseInsight(advisorID, insightMap)
+				if insight != nil {
+					adv.AddInsight(insight)
+				}
+			}
+		}
+	}
+}
+
+// parseInsight parses insight data from an event
+func (g *Game) parseInsight(advisorID string, data map[string]interface{}) *advisor.Insight {
+	title, _ := data["title"].(string)
+	description, _ := data["description"].(string)
+	if title == "" {
+		return nil
+	}
+
+	// Map severity
+	severityStr, _ := data["severity"].(string)
+	severity := advisor.SeverityInfo
+	switch severityStr {
+	case "warning":
+		severity = advisor.SeverityWarning
+	case "critical":
+		severity = advisor.SeverityCritical
+	}
+
+	// Map category
+	categoryStr, _ := data["category"].(string)
+	category := advisor.CategoryGeneral
+	switch categoryStr {
+	case "security":
+		category = advisor.CategorySecurity
+	case "performance":
+		category = advisor.CategoryPerformance
+	case "refactoring":
+		category = advisor.CategoryRefactoring
+	case "testing":
+		category = advisor.CategoryTesting
+	}
+
+	insight := advisor.NewInsight(advisorID, title, description, severity, category)
+
+	// Add location if present
+	if filePath, ok := data["file_path"].(string); ok {
+		line, _ := data["line"].(float64)
+		column, _ := data["column"].(float64)
+		insight.WithLocation(filePath, int(line), int(column))
+	}
+
+	// Add suggestion if present
+	if suggestion, ok := data["suggestion"].(string); ok {
+		codeBefore, _ := data["code_before"].(string)
+		codeAfter, _ := data["code_after"].(string)
+		insight.WithSuggestion(suggestion, codeBefore, codeAfter)
+	}
+
+	return insight
+}
+
+// triggerAdvisorsForFile triggers advisors that should run when a file changes
+func (g *Game) triggerAdvisorsForFile(filePath string) {
+	triggered := g.advisorPool.TriggerOnFileChange(filePath)
+	for _, adv := range triggered {
+		// In a real implementation, this would spawn the advisor subagent
+		// For now, we just mark that the advisor should analyze this file
+		_ = adv // TODO: Implement actual advisor execution
+	}
+}
+
+// durationFromMs converts milliseconds to time.Duration
+func durationFromMs(ms float64) time.Duration {
+	return time.Duration(ms * float64(time.Millisecond))
 }
 
 // Close cleans up game resources
