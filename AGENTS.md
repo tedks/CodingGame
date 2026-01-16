@@ -83,6 +83,86 @@ bd sync               # Sync with git
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 
+## Building and Testing
+
+This project uses **Bazel** as the primary build system with **Nix** for reproducible environments.
+
+### Build Commands
+
+```bash
+# Build all targets
+bazel build //...
+
+# Build main binary
+bazel build //:codinggame
+
+# Build specific package
+bazel build //internal/tile
+```
+
+### Running Tests
+
+**ALWAYS use Bazel for running tests:**
+
+```bash
+# Run all tests
+bazel test //...
+
+# Run specific package tests
+bazel test //internal/tile:tile_test
+bazel test //internal/claude:claude_test
+bazel test //internal/mapview:mapview_test
+bazel test //internal/game:game_test
+
+# Run with verbose output
+bazel test //... --test_output=all
+
+# Run tests showing only errors
+bazel test //... --test_output=errors
+```
+
+### Quality Gates (Pre-Commit)
+
+Before committing code changes, run:
+
+```bash
+# Build everything
+bazel build //...
+
+# Run all tests
+bazel test //...
+
+# Format Go code
+go fmt ./...
+```
+
+### Nix Environment
+
+The Nix environment provides all dependencies automatically:
+
+```bash
+# Enter Nix shell (if not using direnv)
+nix develop
+
+# Or with direnv
+direnv allow  # Auto-loads environment
+```
+
+**Note**: In environments without Nix installed, Bazel will not be available. Use Go modules instead (see below).
+
+### Alternative: Go Modules
+
+For quick iteration or environments without Nix, Go modules are also supported:
+
+```bash
+go build
+go test ./...
+```
+
+However, **prefer Bazel for CI/CD and final validation** as it provides hermetic builds.
+
+In Nix-enabled environments, always use `bazel test //...` instead of `go test`.
+
 ## Code Style and Development Guidelines
 
 ### Go Conventions
