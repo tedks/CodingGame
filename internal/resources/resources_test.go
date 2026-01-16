@@ -93,7 +93,7 @@ func TestFormatResourceText(t *testing.T) {
 			name: "api cost cents",
 			resource: &Resource{
 				Name:    "API Cost",
-				Current: 1234, // $12.34
+				Current: 1234,  // $12.34
 				Max:     10000, // $100.00
 				Unit:    "cents",
 			},

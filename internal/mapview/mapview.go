@@ -113,14 +113,14 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 
 			// Allow important dotfiles/directories
 			allowedDotfiles := map[string]bool{
-				".github":      true,
-				".bazelrc":     true,
-				".bazelversion": true,
-				".envrc":       true,
-				".beads":       true,
-				".gitignore":   true,
+				".github":        true,
+				".bazelrc":       true,
+				".bazelversion":  true,
+				".envrc":         true,
+				".beads":         true,
+				".gitignore":     true,
 				".gitattributes": true,
-				".editorconfig": true,
+				".editorconfig":  true,
 			}
 
 			if !allowedDotfiles[baseName] {

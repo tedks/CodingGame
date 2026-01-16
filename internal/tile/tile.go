@@ -10,7 +10,7 @@ import (
 type FogState int
 
 const (
-	FogFull    FogState = iota // Completely fogged (not read by Claude)
+	FogFull     FogState = iota // Completely fogged (not read by Claude)
 	FogStale                    // Previously read but may be outdated (context summarized)
 	FogRevealed                 // Currently in Claude's context
 )
@@ -27,11 +27,11 @@ type Tile struct {
 	extension string
 
 	// Fog of war state
-	fogState      FogState
-	lastRevealed  time.Time
-	revealCount   int // How many times Claude has read this file
-	lastModified  time.Time
-	sizeBytes     int64
+	fogState     FogState
+	lastRevealed time.Time
+	revealCount  int // How many times Claude has read this file
+	lastModified time.Time
+	sizeBytes    int64
 
 	// Animation state
 	highlightUntil time.Time // For temporary highlights on edits

@@ -241,4 +241,3 @@ func TestContainsAny(t *testing.T) {
 		}
 	}
 }
-
