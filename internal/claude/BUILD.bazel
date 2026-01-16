@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "claude",
+    srcs = ["interceptor.go"],
+    importpath = "github.com/tedks/CodingGame/internal/claude",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "claude_test",
+    srcs = ["interceptor_test.go"],
+    embed = [":claude"],
+)

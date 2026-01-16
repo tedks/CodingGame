@@ -83,6 +83,99 @@ bd sync               # Sync with git
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 
+## Building and Testing
+
+This project uses **Nix** for environmental dependencies and **Bazel** for code dependencies and builds.
+
+### Dependency Management Philosophy
+
+- **Nix** manages environmental dependencies: Go toolchain, Bazel, system libraries (X11, etc.)
+- **Bazel** manages code dependencies: Go packages, external libraries
+- **Result**: Hermetic, reproducible builds across all environments
+
+### Environment Setup
+
+**CRITICAL**: You must ALWAYS be in a Nix environment when working on this project.
+
+**Check if in Nix environment:**
+```bash
+which bazel  # Should return a path (not "command not found")
+```
+
+**If Bazel is not found, enter Nix environment:**
+```bash
+# Method 1: direnv (automatic, recommended)
+direnv allow
+
+# Method 2: Manual nix develop
+nix develop
+
+# Then verify:
+which bazel  # Should now work
+```
+
+**Note**: All build and test commands below assume you're in the Nix environment.
+
+### Build Commands
+
+```bash
+# Build all targets
+bazel build //...
+
+# Build main binary
+bazel build //:codinggame
+
+# Build specific package
+bazel build //internal/tile
+```
+
+### Running Tests
+
+**ALWAYS use Bazel for running tests:**
+
+```bash
+# Run all tests
+bazel test //...
+
+# Run specific package tests
+bazel test //internal/tile:tile_test
+bazel test //internal/claude:claude_test
+bazel test //internal/mapview:mapview_test
+bazel test //internal/game:game_test
+
+# Run with verbose output
+bazel test //... --test_output=all
+
+# Run tests showing only errors
+bazel test //... --test_output=errors
+```
+
+### Quality Gates (Pre-Commit)
+
+Before committing code changes, run:
+
+```bash
+# Ensure you're in Nix environment
+which bazel || nix develop
+
+# Build everything
+bazel build //...
+
+# Run all tests
+bazel test //...
+
+# Format Go code
+go fmt ./...
+```
+
+### Why Not Go Modules?
+
+While Go modules work, they bypass our hermetic build system:
+- ❌ **Go modules**: System-dependent, version drift, "works on my machine"
+- ✅ **Nix + Bazel**: Exact same environment everywhere, reproducible builds
+
+**Always use Bazel** for builds and tests. Go modules (`go.mod`, `go.sum`) exist only for IDE support and dependency tracking.
+
 ## Code Style and Development Guidelines
 
 ### Go Conventions
@@ -113,10 +206,12 @@ Understanding the metaphors helps maintain consistency:
 | Tech Tree | Capabilities | Shows configured tools/MCPs |
 
 ### Testing Strategy
+- **Always run tests with Bazel**: `bazel test //...` (never `go test`)
 - Unit tests for game logic and state management
 - Integration tests for Claude subprocess interaction
 - Manual testing for visual elements and UX flows
 - No fake/mock metrics in tests - use real examples
+- Tests must pass in Nix environment before committing
 
 ## PR Review Guidelines
 

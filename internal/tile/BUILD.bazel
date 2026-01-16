@@ -1,0 +1,14 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "tile",
+    srcs = ["tile.go"],
+    importpath = "github.com/tedks/CodingGame/internal/tile",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "tile_test",
+    srcs = ["tile_test.go"],
+    embed = [":tile"],
+)

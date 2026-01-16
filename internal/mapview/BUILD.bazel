@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "mapview",
+    srcs = ["mapview.go"],
+    importpath = "github.com/tedks/CodingGame/internal/mapview",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/tile",
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+        "@com_github_hajimehoshi_ebiten_v2//vector",
+    ],
+)
+
+go_test(
+    name = "mapview_test",
+    srcs = ["mapview_test.go"],
+    embed = [":mapview"],
+)

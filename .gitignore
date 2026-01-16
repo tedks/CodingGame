@@ -2,3 +2,30 @@
 .beads/*.db
 .beads/*.db-wal
 .beads/*.db-shm
+
+# Bazel artifacts
+bazel-*
+.bazelrc.user
+
+# Nix
+.direnv/
+result
+result-*
+
+# Go build artifacts
+codinggame
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db
