@@ -1,17 +1,9 @@
-// Package game implements the main game loop and coordinates the CodingGame
-// application components. It integrates the map visualization, resource tracking,
-// and Claude Code tool interception to provide a real-time RTS-style view of
-// software development activities.
-//
-// The game runs at 60 FPS using the Ebitengine framework and manages keyboard
-// input, rendering, and event processing from the Claude subprocess.
 package game
 
 import (
 	"fmt"
 	"image/color"
 	"path/filepath"
-	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -19,21 +11,18 @@ import (
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/resources"
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
-const (
-	// ResourceBarHeight is the height of the top resource bar in pixels
-	ResourceBarHeight = 40
-
-	// PanSpeed is the number of pixels to pan per frame when arrow keys are held
-	PanSpeed = 5
-)
-
-// Game implements ebiten.Game interface and manages the game state
-type Game struct {
+// GameScene implements ui.Scene for the main gameplay view.
+// It wraps the existing game functionality and integrates with the scene system.
+type GameScene struct {
 	projectPath string
 	width       int
 	height      int
+
+	// Configuration from start screen
+	config ui.GameConfig
 
 	// Phase 1 components
 	mapView     *mapview.MapView
@@ -48,8 +37,8 @@ type Game struct {
 	lastMouseY int
 }
 
-// New creates a new game instance
-func New(projectPath string, width, height int) (*Game, error) {
+// NewGameScene creates a new game scene for the given project.
+func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	// Initialize map view
 	mapView, err := mapview.New(projectPath, width, height-ResourceBarHeight)
 	if err != nil {
@@ -68,7 +57,7 @@ func New(projectPath string, width, height int) (*Game, error) {
 		return nil, fmt.Errorf("failed to load advisor configs: %w", err)
 	}
 
-	g := &Game{
+	gs := &GameScene{
 		projectPath: projectPath,
 		width:       width,
 		height:      height,
@@ -79,93 +68,116 @@ func New(projectPath string, width, height int) (*Game, error) {
 	}
 
 	// Register event handlers for Claude tool interception
-	interceptor.AddHandler(g.handleClaudeEvent)
+	interceptor.AddHandler(gs.handleClaudeEvent)
 
 	// Start interceptor
 	if err := interceptor.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start Claude interceptor: %w", err)
 	}
 
-	return g, nil
+	return gs, nil
 }
 
-// Update updates the game state (called 60 times per second)
-func (g *Game) Update() error {
+// SetConfig sets the configuration from the start screen.
+func (gs *GameScene) SetConfig(config ui.GameConfig) {
+	gs.config = config
+}
+
+// Update implements ui.Scene.
+func (gs *GameScene) Update() (ui.Scene, error) {
 	// Handle keyboard input for navigation
 	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) || ebiten.IsKeyPressed(ebiten.KeyH) {
-		g.mapView.Pan(-PanSpeed, 0)
+		gs.mapView.Pan(-PanSpeed, 0)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) || ebiten.IsKeyPressed(ebiten.KeyL) {
-		g.mapView.Pan(PanSpeed, 0)
+		gs.mapView.Pan(PanSpeed, 0)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) || ebiten.IsKeyPressed(ebiten.KeyK) {
-		g.mapView.Pan(0, -PanSpeed)
+		gs.mapView.Pan(0, -PanSpeed)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) || ebiten.IsKeyPressed(ebiten.KeyJ) {
-		g.mapView.Pan(0, PanSpeed)
+		gs.mapView.Pan(0, PanSpeed)
 	}
 
 	// Handle zoom with +/- or =/- keys
 	if ebiten.IsKeyPressed(ebiten.KeyEqual) || ebiten.IsKeyPressed(ebiten.KeyKPAdd) {
-		g.mapView.ZoomIn()
+		gs.mapView.ZoomIn()
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyMinus) || ebiten.IsKeyPressed(ebiten.KeyKPSubtract) {
-		g.mapView.ZoomOut()
+		gs.mapView.ZoomOut()
 	}
 
 	// Update map view
-	g.mapView.Update()
+	gs.mapView.Update()
 
 	// Update resource tracker
-	g.resources.Update()
+	gs.resources.Update()
 
-	return nil
+	// No scene transition
+	return nil, nil
 }
 
-// Draw renders the game (called 60 times per second)
-func (g *Game) Draw(screen *ebiten.Image) {
+// Draw implements ui.Scene.
+func (gs *GameScene) Draw(screen *ebiten.Image) {
 	// Clear screen with black
 	screen.Fill(color.RGBA{0, 0, 0, 255})
 
 	// Draw resource bar at top
-	g.resources.Draw(screen, 0, 0, g.width, ResourceBarHeight)
+	gs.resources.Draw(screen, 0, 0, gs.width, ResourceBarHeight)
 
 	// Draw map view below resource bar
-	g.mapView.Draw(screen, 0, ResourceBarHeight)
+	gs.mapView.Draw(screen, 0, ResourceBarHeight)
 
 	// Draw debug info
-	ebitenutil.DebugPrint(screen, fmt.Sprintf(
+	debugText := fmt.Sprintf(
 		"FPS: %.1f\nZoom: %d\nPan: (%.0f, %.0f)\nControls: hjkl/arrows=pan, +/-=zoom",
 		ebiten.ActualFPS(),
-		g.mapView.ZoomLevel(),
-		g.mapView.PanX(),
-		g.mapView.PanY(),
-	))
+		gs.mapView.ZoomLevel(),
+		gs.mapView.PanX(),
+		gs.mapView.PanY(),
+	)
+	if gs.config.Harness != "" {
+		debugText += fmt.Sprintf("\nHarness: %s\nModel: %s", gs.config.Harness, gs.config.Model)
+	}
+	ebitenutil.DebugPrint(screen, debugText)
 }
 
-// Layout returns the game's screen dimensions
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return g.width, g.height
+// OnEnter implements ui.Scene.
+func (gs *GameScene) OnEnter() {
+	// Game scene entered
 }
 
-// handleClaudeEvent processes events from the Claude interceptor
-func (g *Game) handleClaudeEvent(event *claude.Event) {
+// OnExit implements ui.Scene.
+func (gs *GameScene) OnExit() {
+	// Game scene exiting
+}
+
+// Close cleans up game scene resources.
+func (gs *GameScene) Close() error {
+	if gs.interceptor != nil {
+		return gs.interceptor.Stop()
+	}
+	return nil
+}
+
+// handleClaudeEvent processes events from the Claude interceptor.
+func (gs *GameScene) handleClaudeEvent(event *claude.Event) {
 	switch event.Type {
 	case claude.EventFileRead:
 		// Reveal fog for files that Claude reads
 		if path, ok := event.Data["file_path"].(string); ok {
-			absPath := filepath.Join(g.projectPath, path)
-			g.mapView.RevealTile(absPath)
+			absPath := filepath.Join(gs.projectPath, path)
+			gs.mapView.RevealTile(absPath)
 		}
 
 	case claude.EventFileWrite, claude.EventFileEdit:
 		// Highlight files that Claude writes/edits
 		if path, ok := event.Data["file_path"].(string); ok {
-			absPath := filepath.Join(g.projectPath, path)
+			absPath := filepath.Join(gs.projectPath, path)
 			// Reveal and highlight the tile
-			g.mapView.RevealTile(absPath)
+			gs.mapView.RevealTile(absPath)
 			// Trigger advisors that watch this file (Phase 3)
-			g.triggerAdvisorsForFile(path)
+			gs.triggerAdvisorsForFile(path)
 		}
 
 	case claude.EventBuildRun:
@@ -178,19 +190,19 @@ func (g *Game) handleClaudeEvent(event *claude.Event) {
 
 	case claude.EventSubagentRun:
 		// Handle advisor/subagent execution (Phase 3)
-		g.handleAdvisorEvent(event)
+		gs.handleAdvisorEvent(event)
 	}
 }
 
-// handleAdvisorEvent processes advisor-related events
-func (g *Game) handleAdvisorEvent(event *claude.Event) {
+// handleAdvisorEvent processes advisor-related events.
+func (gs *GameScene) handleAdvisorEvent(event *claude.Event) {
 	// Extract advisor ID from event data if present
 	advisorID, _ := event.Data["advisor_id"].(string)
 	if advisorID == "" {
 		return
 	}
 
-	adv := g.advisorPool.Get(advisorID)
+	adv := gs.advisorPool.Get(advisorID)
 	if adv == nil {
 		return
 	}
@@ -220,7 +232,7 @@ func (g *Game) handleAdvisorEvent(event *claude.Event) {
 	if insightsData, ok := event.Data["insights"].([]interface{}); ok {
 		for _, insightData := range insightsData {
 			if insightMap, ok := insightData.(map[string]interface{}); ok {
-				insight := g.parseInsight(advisorID, insightMap)
+				insight := gs.parseInsight(advisorID, insightMap)
 				if insight != nil {
 					adv.AddInsight(insight)
 				}
@@ -229,8 +241,8 @@ func (g *Game) handleAdvisorEvent(event *claude.Event) {
 	}
 }
 
-// parseInsight parses insight data from an event
-func (g *Game) parseInsight(advisorID string, data map[string]interface{}) *advisor.Insight {
+// parseInsight parses insight data from an event.
+func (gs *GameScene) parseInsight(advisorID string, data map[string]interface{}) *advisor.Insight {
 	title, _ := data["title"].(string)
 	description, _ := data["description"].(string)
 	if title == "" {
@@ -280,25 +292,12 @@ func (g *Game) parseInsight(advisorID string, data map[string]interface{}) *advi
 	return insight
 }
 
-// triggerAdvisorsForFile triggers advisors that should run when a file changes
-func (g *Game) triggerAdvisorsForFile(filePath string) {
-	triggered := g.advisorPool.TriggerOnFileChange(filePath)
+// triggerAdvisorsForFile triggers advisors that should run when a file changes.
+func (gs *GameScene) triggerAdvisorsForFile(filePath string) {
+	triggered := gs.advisorPool.TriggerOnFileChange(filePath)
 	for _, adv := range triggered {
 		// In a real implementation, this would spawn the advisor subagent
 		// For now, we just mark that the advisor should analyze this file
 		_ = adv // TODO: Implement actual advisor execution
 	}
-}
-
-// durationFromMs converts milliseconds to time.Duration
-func durationFromMs(ms float64) time.Duration {
-	return time.Duration(ms * float64(time.Millisecond))
-}
-
-// Close cleans up game resources
-func (g *Game) Close() error {
-	if g.interceptor != nil {
-		return g.interceptor.Stop()
-	}
-	return nil
 }

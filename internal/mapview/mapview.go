@@ -158,16 +158,16 @@ func (m *MapView) Update() {
 
 // Draw renders the map view
 func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
-	// Create sub-image for map area
-	mapArea := screen.SubImage(ebiten.NewImage(m.width, m.height)).(*ebiten.Image)
-
-	// Fill background
-	mapArea.Fill(ebiten.ColorScale{}.Scale(
-		float32(m.bgColor.R)/255,
-		float32(m.bgColor.G)/255,
-		float32(m.bgColor.B)/255,
-		1,
-	).Apply())
+	// Draw the background for the map area
+	vector.DrawFilledRect(
+		screen,
+		float32(offsetX),
+		float32(offsetY),
+		float32(m.width),
+		float32(m.height),
+		m.bgColor,
+		false,
+	)
 
 	// Calculate tile size based on zoom level
 	tileSize := m.getTileSize()
@@ -189,11 +189,11 @@ func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 		}
 
 		// Draw tile
-		m.drawTile(mapArea, t, float32(x), float32(y), float32(tileSize))
+		m.drawTile(screen, t, float32(x), float32(y), float32(tileSize))
 	}
 
 	// Draw grid lines
-	m.drawGrid(mapArea, offsetX, offsetY, tileSize)
+	m.drawGrid(screen, offsetX, offsetY, tileSize)
 }
 
 // drawTile renders a single tile

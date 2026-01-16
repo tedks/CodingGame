@@ -1,0 +1,31 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "ui",
+    srcs = [
+        "menu.go",
+        "scene.go",
+        "startscreen.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/ui",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+        "@com_github_hajimehoshi_ebiten_v2//ebitenutil",
+        "@com_github_hajimehoshi_ebiten_v2//inpututil",
+        "@com_github_hajimehoshi_ebiten_v2//vector",
+    ],
+)
+
+go_test(
+    name = "ui_test",
+    srcs = [
+        "menu_test.go",
+        "scene_test.go",
+        "startscreen_test.go",
+    ],
+    embed = [":ui"],
+    deps = [
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+    ],
+)
