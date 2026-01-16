@@ -29,8 +29,8 @@ CodingGame is a **game interface to coding**, not a game about coding. It uses g
 git clone https://github.com/tedks/CodingGame.git
 cd CodingGame
 
-# Automated setup (installs Nix + direnv)
-./scripts/setup-dev-env.sh
+# One-command setup (installs Nix + Bazel + beads + direnv)
+./scripts/setup.sh
 
 # Build with Bazel
 bazel build //...
@@ -39,7 +39,9 @@ bazel build //...
 bazel run //:codinggame
 ```
 
-**Manual setup**: If you already have Nix installed, just `cd CodingGame && direnv allow` or `nix develop`
+**Already have Nix?** Just `cd CodingGame && direnv allow` or `nix develop`
+
+**Verify setup:** `./scripts/setup.sh --verify`
 
 ### Alternative: Go Modules
 

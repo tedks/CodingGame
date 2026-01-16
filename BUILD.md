@@ -12,21 +12,27 @@ CodingGame uses **Nix** for reproducible development environments and **Bazel** 
 
 ### Automated Setup (Recommended)
 
-The fastest way to get started:
+The fastest way to get started - one script installs everything:
 
 ```bash
 # Clone the repository
 git clone https://github.com/tedks/CodingGame.git
 cd CodingGame
 
-# Run the automated setup script
-./scripts/setup-dev-env.sh
+# Run the unified setup script (Nix + Bazel + beads + direnv)
+./scripts/setup.sh
 
-# The script will install Nix, direnv, and verify everything works
+# The script will install everything and verify it works
 # Then you can immediately build and run:
 bazel build //...
 bazel run //:codinggame
 ```
+
+**Setup options:**
+- `./scripts/setup.sh --verify` - Check your current setup
+- `./scripts/setup.sh --skip-direnv` - Skip direnv installation
+- `./scripts/setup.sh --skip-beads` - Skip beads installation
+- `./scripts/setup.sh --beads-only` - Only install beads
 
 ### Manual Setup
 
@@ -67,7 +73,7 @@ That's it! Nix handles all dependencies (Go, Bazel, X11 libraries, etc.).
 
 ### 1. Nix Installation
 
-**Tip:** For automated installation, run `./scripts/setup-dev-env.sh` instead of following these manual steps.
+**Tip:** For automated installation, run `./scripts/setup.sh` instead of following these manual steps.
 
 #### Install Nix with Flakes
 
