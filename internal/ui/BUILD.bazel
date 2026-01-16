@@ -4,6 +4,7 @@ go_library(
     name = "ui",
     srcs = [
         "menu.go",
+        "prompt.go",
         "scene.go",
         "startscreen.go",
     ],
@@ -21,6 +22,7 @@ go_test(
     name = "ui_test",
     srcs = [
         "menu_test.go",
+        "prompt_test.go",
         "scene_test.go",
         "startscreen_test.go",
     ],

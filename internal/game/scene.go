@@ -9,10 +9,14 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/tedks/CodingGame/internal/advisor"
 	"github.com/tedks/CodingGame/internal/claude"
+	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/resources"
 	"github.com/tedks/CodingGame/internal/ui"
 )
+
+// PromptPanelHeight is the height of the bottom prompt panel in pixels.
+const PromptPanelHeight = 60
 
 // GameScene implements ui.Scene for the main gameplay view.
 // It wraps the existing game functionality and integrates with the scene system.
@@ -24,6 +28,10 @@ type GameScene struct {
 	// Configuration from start screen
 	config ui.GameConfig
 
+	// Phase 0 components
+	inputHandler *input.Handler
+	promptPanel  *ui.PromptPanel
+
 	// Phase 1 components
 	mapView     *mapview.MapView
 	resources   *resources.Tracker
@@ -32,6 +40,9 @@ type GameScene struct {
 	// Phase 3 components
 	advisorPool *advisor.Pool
 
+	// Callbacks
+	onPromptSubmit func(text string) // Called when a prompt is submitted
+
 	// Input state
 	lastMouseX int
 	lastMouseY int
@@ -39,8 +50,11 @@ type GameScene struct {
 
 // NewGameScene creates a new game scene for the given project.
 func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
+	// Calculate map view height (accounting for resource bar and prompt panel)
+	mapViewHeight := height - ResourceBarHeight - PromptPanelHeight
+
 	// Initialize map view
-	mapView, err := mapview.New(projectPath, width, height-ResourceBarHeight)
+	mapView, err := mapview.New(projectPath, width, mapViewHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create map view: %w", err)
 	}
@@ -57,15 +71,27 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		return nil, fmt.Errorf("failed to load advisor configs: %w", err)
 	}
 
+	// Initialize input handler
+	inputHandler := input.NewHandler()
+
+	// Initialize prompt panel
+	promptPanel := ui.NewPromptPanel(width)
+	promptPanel.SetPosition(0, height-PromptPanelHeight)
+
 	gs := &GameScene{
-		projectPath: projectPath,
-		width:       width,
-		height:      height,
-		mapView:     mapView,
-		resources:   resourceTracker,
-		interceptor: interceptor,
-		advisorPool: advisorPool,
+		projectPath:  projectPath,
+		width:        width,
+		height:       height,
+		inputHandler: inputHandler,
+		promptPanel:  promptPanel,
+		mapView:      mapView,
+		resources:    resourceTracker,
+		interceptor:  interceptor,
+		advisorPool:  advisorPool,
 	}
+
+	// Wire up input handler callbacks
+	gs.setupInputCallbacks()
 
 	// Register event handlers for Claude tool interception
 	interceptor.AddHandler(gs.handleClaudeEvent)
@@ -78,6 +104,73 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	return gs, nil
 }
 
+// setupInputCallbacks wires up the input handler callbacks to the game scene.
+func (gs *GameScene) setupInputCallbacks() {
+	// Update prompt mode indicator when mode changes
+	gs.inputHandler.OnModeChange(func(mode input.Mode) {
+		gs.promptPanel.SetMode(mode.String())
+	})
+
+	// Update prompt focus state when focus changes
+	gs.inputHandler.OnFocusChange(func(focus input.FocusArea) {
+		if focus == input.FocusPrompt {
+			gs.promptPanel.Focus()
+		} else {
+			gs.promptPanel.Unfocus()
+		}
+	})
+
+	// Update prompt text when text buffer changes
+	gs.inputHandler.OnTextChange(func(text string) {
+		gs.promptPanel.SetText(text)
+	})
+
+	// Handle actions
+	gs.inputHandler.OnAction(func(action input.Action) {
+		switch action {
+		case input.ActionSubmitPrompt:
+			gs.handlePromptSubmit()
+		case input.ActionCancelPrompt:
+			gs.handlePromptCancel()
+		}
+	})
+
+	// Set up prompt panel callbacks
+	gs.promptPanel.OnSubmit = func(text string) {
+		if gs.onPromptSubmit != nil {
+			gs.onPromptSubmit(text)
+		}
+		// Clear text buffer and return to normal mode
+		gs.inputHandler.ClearTextBuffer()
+		gs.inputHandler.SetMode(input.ModeNormal)
+		gs.inputHandler.SetFocus(input.FocusMap)
+	}
+
+	gs.promptPanel.OnCancel = func() {
+		gs.inputHandler.ClearTextBuffer()
+		gs.inputHandler.SetMode(input.ModeNormal)
+		gs.inputHandler.SetFocus(input.FocusMap)
+	}
+}
+
+// OnPromptSubmit sets the callback for when a prompt is submitted.
+func (gs *GameScene) OnPromptSubmit(callback func(text string)) {
+	gs.onPromptSubmit = callback
+}
+
+// handlePromptSubmit handles prompt submission.
+func (gs *GameScene) handlePromptSubmit() {
+	text := gs.inputHandler.TextBuffer()
+	if text != "" {
+		gs.promptPanel.Submit()
+	}
+}
+
+// handlePromptCancel handles prompt cancellation.
+func (gs *GameScene) handlePromptCancel() {
+	gs.promptPanel.Cancel()
+}
+
 // SetConfig sets the configuration from the start screen.
 func (gs *GameScene) SetConfig(config ui.GameConfig) {
 	gs.config = config
@@ -85,27 +178,37 @@ func (gs *GameScene) SetConfig(config ui.GameConfig) {
 
 // Update implements ui.Scene.
 func (gs *GameScene) Update() (ui.Scene, error) {
-	// Handle keyboard input for navigation
-	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) || ebiten.IsKeyPressed(ebiten.KeyH) {
-		gs.mapView.Pan(-PanSpeed, 0)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) || ebiten.IsKeyPressed(ebiten.KeyL) {
-		gs.mapView.Pan(PanSpeed, 0)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) || ebiten.IsKeyPressed(ebiten.KeyK) {
-		gs.mapView.Pan(0, -PanSpeed)
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) || ebiten.IsKeyPressed(ebiten.KeyJ) {
-		gs.mapView.Pan(0, PanSpeed)
+	// Update input handler (processes all keybindings)
+	gs.inputHandler.Update()
+
+	// Handle navigation based on current mode and focus
+	// Navigation only works when focused on map and in Normal mode
+	if gs.inputHandler.Focus() == input.FocusMap {
+		// Use the input handler's action checks for continuous movement
+		if gs.inputHandler.IsActionHeld(input.ActionMoveLeft) {
+			gs.mapView.Pan(-PanSpeed, 0)
+		}
+		if gs.inputHandler.IsActionHeld(input.ActionMoveRight) {
+			gs.mapView.Pan(PanSpeed, 0)
+		}
+		if gs.inputHandler.IsActionHeld(input.ActionMoveUp) {
+			gs.mapView.Pan(0, -PanSpeed)
+		}
+		if gs.inputHandler.IsActionHeld(input.ActionMoveDown) {
+			gs.mapView.Pan(0, PanSpeed)
+		}
+
+		// Handle zoom
+		if gs.inputHandler.IsActionHeld(input.ActionZoomIn) {
+			gs.mapView.ZoomIn()
+		}
+		if gs.inputHandler.IsActionHeld(input.ActionZoomOut) {
+			gs.mapView.ZoomOut()
+		}
 	}
 
-	// Handle zoom with +/- or =/- keys
-	if ebiten.IsKeyPressed(ebiten.KeyEqual) || ebiten.IsKeyPressed(ebiten.KeyKPAdd) {
-		gs.mapView.ZoomIn()
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyMinus) || ebiten.IsKeyPressed(ebiten.KeyKPSubtract) {
-		gs.mapView.ZoomOut()
-	}
+	// Update prompt panel
+	gs.promptPanel.Update()
 
 	// Update map view
 	gs.mapView.Update()
@@ -125,19 +228,26 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	// Draw resource bar at top
 	gs.resources.Draw(screen, 0, 0, gs.width, ResourceBarHeight)
 
-	// Draw map view below resource bar
+	// Draw map view below resource bar (above prompt panel)
 	gs.mapView.Draw(screen, 0, ResourceBarHeight)
 
+	// Draw prompt panel at bottom
+	gs.promptPanel.Draw(screen)
+
 	// Draw debug info
+	mode := gs.inputHandler.Mode().String()
+	focus := gs.inputHandler.Focus().String()
 	debugText := fmt.Sprintf(
-		"FPS: %.1f\nZoom: %d\nPan: (%.0f, %.0f)\nControls: hjkl/arrows=pan, +/-=zoom",
+		"FPS: %.1f | Mode: %s | Focus: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom",
 		ebiten.ActualFPS(),
+		mode,
+		focus,
 		gs.mapView.ZoomLevel(),
 		gs.mapView.PanX(),
 		gs.mapView.PanY(),
 	)
 	if gs.config.Harness != "" {
-		debugText += fmt.Sprintf("\nHarness: %s\nModel: %s", gs.config.Harness, gs.config.Model)
+		debugText += fmt.Sprintf("\nHarness: %s | Model: %s", gs.config.Harness, gs.config.Model)
 	}
 	ebitenutil.DebugPrint(screen, debugText)
 }
