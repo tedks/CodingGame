@@ -1,3 +1,10 @@
+// Package game implements the main game loop and coordinates the CodingGame
+// application components. It integrates the map visualization, resource tracking,
+// and Claude Code tool interception to provide a real-time RTS-style view of
+// software development activities.
+//
+// The game runs at 60 FPS using the Ebitengine framework and manages keyboard
+// input, rendering, and event processing from the Claude subprocess.
 package game
 
 import (
@@ -10,6 +17,14 @@ import (
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/resources"
+)
+
+const (
+	// ResourceBarHeight is the height of the top resource bar in pixels
+	ResourceBarHeight = 40
+
+	// PanSpeed is the number of pixels to pan per frame when arrow keys are held
+	PanSpeed = 5
 )
 
 // Game implements ebiten.Game interface and manages the game state
@@ -31,7 +46,7 @@ type Game struct {
 // New creates a new game instance
 func New(projectPath string, width, height int) (*Game, error) {
 	// Initialize map view
-	mapView, err := mapview.New(projectPath, width, height-40) // Reserve 40px for resource bar
+	mapView, err := mapview.New(projectPath, width, height-ResourceBarHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create map view: %w", err)
 	}
@@ -66,16 +81,16 @@ func New(projectPath string, width, height int) (*Game, error) {
 func (g *Game) Update() error {
 	// Handle keyboard input for navigation
 	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) || ebiten.IsKeyPressed(ebiten.KeyH) {
-		g.mapView.Pan(-5, 0)
+		g.mapView.Pan(-PanSpeed, 0)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) || ebiten.IsKeyPressed(ebiten.KeyL) {
-		g.mapView.Pan(5, 0)
+		g.mapView.Pan(PanSpeed, 0)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) || ebiten.IsKeyPressed(ebiten.KeyK) {
-		g.mapView.Pan(0, -5)
+		g.mapView.Pan(0, -PanSpeed)
 	}
 	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) || ebiten.IsKeyPressed(ebiten.KeyJ) {
-		g.mapView.Pan(0, 5)
+		g.mapView.Pan(0, PanSpeed)
 	}
 
 	// Handle zoom with +/- or =/- keys
@@ -100,11 +115,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Clear screen
 	screen.Fill(ebiten.ColorScale{}.Scale(0, 0, 0, 1).Apply())
 
-	// Draw resource bar at top (40px height)
-	g.resources.Draw(screen, 0, 0, g.width, 40)
+	// Draw resource bar at top
+	g.resources.Draw(screen, 0, 0, g.width, ResourceBarHeight)
 
 	// Draw map view below resource bar
-	g.mapView.Draw(screen, 0, 40)
+	g.mapView.Draw(screen, 0, ResourceBarHeight)
 
 	// Draw debug info
 	ebitenutil.DebugPrint(screen, fmt.Sprintf(

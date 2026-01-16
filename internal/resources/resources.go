@@ -1,3 +1,9 @@
+// Package resources provides real-time tracking and visualization of development
+// metrics in an RTS-style resource bar. It tracks actual values like context tokens,
+// API costs, test coverage, and build status rather than synthetic game metrics.
+//
+// The resource tracker is thread-safe and supports custom resources for extensibility.
+// All metrics are displayed with visual progress bars and formatted text.
 package resources
 
 import (

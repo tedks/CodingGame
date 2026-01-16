@@ -242,22 +242,3 @@ func TestContainsAny(t *testing.T) {
 	}
 }
 
-func TestToLower(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"HELLO", "hello"},
-		{"Hello", "hello"},
-		{"hello", "hello"},
-		{"GoLang123", "golang123"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		result := toLower(tt.input)
-		if result != tt.expected {
-			t.Errorf("toLower(%q) = %q, expected %q", tt.input, result, tt.expected)
-		}
-	}
-}

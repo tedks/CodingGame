@@ -1,3 +1,11 @@
+// Package mapview provides a zoomable, pannable 2D tile-based map visualization
+// for displaying project files and directories. It implements a fog of war system
+// that reveals tiles as Claude Code reads files, creating a visual representation
+// of the AI's context window.
+//
+// The map supports 5 zoom levels from World (repository root) to Interior (file contents).
+// Navigation is keyboard-driven with vim-style keys (hjkl) or arrow keys for panning,
+// and +/- keys for zooming.
 package mapview
 
 import (
@@ -19,6 +27,10 @@ const (
 	ZoomCity     ZoomLevel = 3 // Individual packages with buildings
 	ZoomStreet   ZoomLevel = 4 // Files within a package
 	ZoomInterior ZoomLevel = 5 // Single file contents
+
+	// Rendering constants
+	TileBorderSpacing = 2  // Pixels between tiles
+	BorderColorBoost  = 20 // Amount to lighten border color
 )
 
 // MapView manages the map visualization with tiles and fog of war
@@ -33,7 +45,8 @@ type MapView struct {
 	zoomLevel ZoomLevel
 
 	// Tile system
-	tiles []*tile.Tile
+	tiles   []*tile.Tile
+	tileMap map[string]*tile.Tile // Fast lookup by path
 
 	// Colors
 	bgColor       color.RGBA
@@ -50,6 +63,12 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		return nil, err
 	}
 
+	// Build fast lookup map
+	tileMap := make(map[string]*tile.Tile, len(tiles))
+	for _, t := range tiles {
+		tileMap[t.Path()] = t
+	}
+
 	return &MapView{
 		projectPath:   projectPath,
 		width:         width,
@@ -58,6 +77,7 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		panY:          0,
 		zoomLevel:     ZoomWorld,
 		tiles:         tiles,
+		tileMap:       tileMap,
 		bgColor:       color.RGBA{20, 20, 30, 255},
 		gridColor:     color.RGBA{60, 60, 80, 255},
 		fogColor:      color.RGBA{40, 40, 50, 200},
@@ -75,12 +95,41 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 			return err
 		}
 
-		// Skip hidden files and .git directory
-		if filepath.Base(path)[0] == '.' && path != projectPath {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
+		// Get base name safely
+		baseName := filepath.Base(path)
+		if baseName == "" || baseName == "." {
 			return nil
+		}
+
+		// Skip specific hidden directories/files, but allow important dotfiles
+		if baseName[0] == '.' && path != projectPath {
+			// Always skip .git directory
+			if baseName == ".git" {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// Allow important dotfiles/directories
+			allowedDotfiles := map[string]bool{
+				".github":      true,
+				".bazelrc":     true,
+				".bazelversion": true,
+				".envrc":       true,
+				".beads":       true,
+				".gitignore":   true,
+				".gitattributes": true,
+				".editorconfig": true,
+			}
+
+			if !allowedDotfiles[baseName] {
+				// Skip other hidden files/directories
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
 		}
 
 		// Create tile for this file/directory
@@ -161,17 +210,28 @@ func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float3
 		tileColor = m.fogColor
 	}
 
-	// Draw tile rectangle
-	vector.DrawFilledRect(screen, x, y, size-2, size-2, tileColor, false)
+	// Draw tile rectangle (with border spacing)
+	vector.DrawFilledRect(screen, x, y, size-TileBorderSpacing, size-TileBorderSpacing, tileColor, false)
 
-	// Draw border
+	// Draw border with lighter color (clamp to prevent overflow)
 	borderColor := color.RGBA{
-		uint8(int(tileColor.R) + 20),
-		uint8(int(tileColor.G) + 20),
-		uint8(int(tileColor.B) + 20),
+		clampUint8(int(tileColor.R) + BorderColorBoost),
+		clampUint8(int(tileColor.G) + BorderColorBoost),
+		clampUint8(int(tileColor.B) + BorderColorBoost),
 		255,
 	}
-	vector.StrokeRect(screen, x, y, size-2, size-2, 1, borderColor, false)
+	vector.StrokeRect(screen, x, y, size-TileBorderSpacing, size-TileBorderSpacing, 1, borderColor, false)
+}
+
+// clampUint8 clamps an int value to the valid uint8 range [0, 255]
+func clampUint8(v int) uint8 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
 }
 
 // drawGrid draws the grid lines
@@ -246,10 +306,7 @@ func (m *MapView) PanY() float64 {
 
 // RevealTile marks a tile as revealed (fog of war cleared)
 func (m *MapView) RevealTile(path string) {
-	for _, t := range m.tiles {
-		if t.Path() == path {
-			t.Reveal()
-			return
-		}
+	if t, exists := m.tileMap[path]; exists {
+		t.Reveal()
 	}
 }

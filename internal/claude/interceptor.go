@@ -1,3 +1,10 @@
+// Package claude provides interception and event handling for Claude Code tool calls.
+// It parses JSON output from Claude subprocess operations to drive game visualizations
+// such as fog of war reveals (file reads), tile highlights (file writes/edits), and
+// resource updates (build/test runs).
+//
+// The interceptor runs event handlers in separate goroutines and supports multiple
+// concurrent handlers for the same event type.
 package claude
 
 import (
@@ -6,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -194,45 +202,15 @@ func (i *Interceptor) inferEventType(data map[string]interface{}) EventType {
 	return ""
 }
 
-// containsAny checks if a string contains any of the substrings
+// containsAny checks if a string contains any of the substrings (case-insensitive)
 func containsAny(s string, substrs []string) bool {
+	sLower := strings.ToLower(s)
 	for _, substr := range substrs {
-		if contains(s, substr) {
+		if strings.Contains(sLower, strings.ToLower(substr)) {
 			return true
 		}
 	}
 	return false
-}
-
-// contains checks if a string contains a substring (case-insensitive)
-func contains(s, substr string) bool {
-	// Simple case-insensitive check
-	sLower := toLower(s)
-	substrLower := toLower(substr)
-	return indexOf(sLower, substrLower) >= 0
-}
-
-// toLower converts a string to lowercase
-func toLower(s string) string {
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		result[i] = c
-	}
-	return string(result)
-}
-
-// indexOf finds the index of substr in s, or -1 if not found
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
 
 // SimulateFileRead simulates a file read event (for testing)

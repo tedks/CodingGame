@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "game",
@@ -12,4 +12,10 @@ go_library(
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
         "@com_github_hajimehoshi_ebiten_v2//ebitenutil",
     ],
+)
+
+go_test(
+    name = "game_test",
+    srcs = ["game_test.go"],
+    embed = [":game"],
 )
