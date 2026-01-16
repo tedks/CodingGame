@@ -85,7 +85,36 @@ bd sync               # Sync with git
 
 ## Building and Testing
 
-This project uses **Bazel** as the primary build system with **Nix** for reproducible environments.
+This project uses **Nix** for environmental dependencies and **Bazel** for code dependencies and builds.
+
+### Dependency Management Philosophy
+
+- **Nix** manages environmental dependencies: Go toolchain, Bazel, system libraries (X11, etc.)
+- **Bazel** manages code dependencies: Go packages, external libraries
+- **Result**: Hermetic, reproducible builds across all environments
+
+### Environment Setup
+
+**CRITICAL**: You must ALWAYS be in a Nix environment when working on this project.
+
+**Check if in Nix environment:**
+```bash
+which bazel  # Should return a path (not "command not found")
+```
+
+**If Bazel is not found, enter Nix environment:**
+```bash
+# Method 1: direnv (automatic, recommended)
+direnv allow
+
+# Method 2: Manual nix develop
+nix develop
+
+# Then verify:
+which bazel  # Should now work
+```
+
+**Note**: All build and test commands below assume you're in the Nix environment.
 
 ### Build Commands
 
@@ -126,6 +155,9 @@ bazel test //... --test_output=errors
 Before committing code changes, run:
 
 ```bash
+# Ensure you're in Nix environment
+which bazel || nix develop
+
 # Build everything
 bazel build //...
 
@@ -136,32 +168,13 @@ bazel test //...
 go fmt ./...
 ```
 
-### Nix Environment
+### Why Not Go Modules?
 
-The Nix environment provides all dependencies automatically:
+While Go modules work, they bypass our hermetic build system:
+- ❌ **Go modules**: System-dependent, version drift, "works on my machine"
+- ✅ **Nix + Bazel**: Exact same environment everywhere, reproducible builds
 
-```bash
-# Enter Nix shell (if not using direnv)
-nix develop
-
-# Or with direnv
-direnv allow  # Auto-loads environment
-```
-
-**Note**: In environments without Nix installed, Bazel will not be available. Use Go modules instead (see below).
-
-### Alternative: Go Modules
-
-For quick iteration or environments without Nix, Go modules are also supported:
-
-```bash
-go build
-go test ./...
-```
-
-However, **prefer Bazel for CI/CD and final validation** as it provides hermetic builds.
-
-In Nix-enabled environments, always use `bazel test //...` instead of `go test`.
+**Always use Bazel** for builds and tests. Go modules (`go.mod`, `go.sum`) exist only for IDE support and dependency tracking.
 
 ## Code Style and Development Guidelines
 
@@ -193,10 +206,12 @@ Understanding the metaphors helps maintain consistency:
 | Tech Tree | Capabilities | Shows configured tools/MCPs |
 
 ### Testing Strategy
+- **Always run tests with Bazel**: `bazel test //...` (never `go test`)
 - Unit tests for game logic and state management
 - Integration tests for Claude subprocess interaction
 - Manual testing for visual elements and UX flows
 - No fake/mock metrics in tests - use real examples
+- Tests must pass in Nix environment before committing
 
 ## PR Review Guidelines
 
