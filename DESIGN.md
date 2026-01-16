@@ -2,6 +2,8 @@
 
 A Civilization/Call to Power II/Factorio-inspired UI wrapper for Claude Code, transforming software development into an intuitive strategy game experience.
 
+> **Implementation**: Go + Ebitengine GUI application for Linux. See [ARCHITECTURE.md](ARCHITECTURE.md) for technical details.
+
 ## Core Philosophy
 
 This is a **game interface to coding**, not a game about coding. See [PHILOSOPHY.md](PHILOSOPHY.md) for detailed principles.
@@ -17,7 +19,12 @@ Key tenets:
 
 ### The Map: Codebase as Territory
 
-The main view is a strategic map of your codebase.
+The main view is a strategic map of your codebase with two toggleable views:
+
+1. **Directory View**: Filesystem hierarchy - directories as regions, files as tiles
+2. **Dataflow View**: Belt-style visualization of imports and dependencies between files
+
+Toggle between views with Tab. Both views share the same fog of war state.
 
 #### Tile System
 
@@ -52,7 +59,9 @@ Each tile represents a file or directory. Tiles are arranged in a zoomable, pann
 | 4 | Street | Files within a package | Enter/double-click opens editor |
 | 5 | Interior | Single file contents | Syntax-highlighted code view |
 
-Files start in fog until Claude analyzes them. Enter/double-click any file tile to open it in an integrated editor.
+**Fog of War = Context Window**: Files start fogged until Claude reads them. The fog literally represents what's NOT in Claude's context. As Claude reads files, they're revealed on the map. When context summarization occurs, files may become "stale" (faded). This visualization makes the 200k token context window tangible.
+
+Enter/double-click any file tile to open it in an integrated editor.
 
 ### Buildings: Build Targets
 
@@ -118,10 +127,11 @@ Advisors are **real subagents that you write and configure** - not pre-defined c
 
 #### What Advisors Are
 
-- Subagents defined in your coding harness configuration
-- Each has a specific domain focus and tool access
-- They execute real analysis tasks when consulted
-- The panel shows what subagents you've actually configured
+- Separate Claude instances with their own managed contexts
+- Each has a specific domain focus (security, refactoring, testing, etc.)
+- Smaller, focused contexts rather than full project context
+- They execute real analysis tasks and return insights
+- Run on-demand ("Consult Security Advisor") or triggered by file changes
 
 #### Advisor Panel
 
@@ -470,10 +480,15 @@ Game state persists across sessions:
 
 ## Claude Code Integration
 
-The interface wraps Claude Code, intercepting tool calls to drive visualizations:
-- File reads/edits → map updates, fog reveal
-- Build/test runs → building/unit animations
-- Subagent calls → advisor panel activity
+The interface wraps Claude Code via `claude --output-format json`, parsing the streaming JSON output to drive visualizations in real-time:
+
+- **Tool calls** (`tool_use` events) → map updates, fog reveal, animations
+- **File reads** → reveal fog on affected tiles
+- **File edits** → highlight and animate affected tiles
+- **Build/test runs** → building/unit status updates
+- **Subagent calls** → advisor panel activity
+
+The JSON stream provides structured access to every tool call and response, enabling tight visual synchronization with Claude's actions.
 
 ---
 
@@ -531,12 +546,17 @@ This extends the strategy game metaphor: you're commanding multiple units (agent
 
 ## Open Questions
 
-1. **Build System Agnostic?** - Started with Bazel, but should support npm, cargo, etc. *(Addressed: Multi-build-system support via adapters)*
-2. **Real-time vs Turn-based?** - Continuous updates with optional "turn-end" checkpoints
-3. **Multiplayer?** - Future: Team view where multiple developers are visible
-4. **Save/Load?** - Implemented via persistence layer with auto-save
-5. **Achievements?** - Yes, integrated with mission rewards
-6. **Sound Design?** - Optional via theme system, audio feedback for key events
+### Resolved
+1. **GUI Framework?** - Go + Ebitengine for efficient rendering on low-end machines
+2. **Claude Integration?** - `claude --output-format json` for structured streaming
+3. **Build System Agnostic?** - Multi-build-system support via adapters (npm, Bazel, cargo)
+4. **Real-time vs Turn-based?** - Turn-based with "end turn" mechanic; visualize during execution
+5. **Save/Load?** - Implemented via persistence layer with auto-save
+
+### Open
+1. **Multiplayer?** - Future: Team view where multiple developers are visible
+2. **Sound Design?** - Optional via theme system, audio feedback for key events
+3. **Asset Style?** - Pixel art, vector, or minimal geometric?
 
 ---
 
