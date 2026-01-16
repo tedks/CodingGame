@@ -27,7 +27,7 @@ load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
 # Go dependencies
 go_rules_dependencies()
 
-go_register_toolchains(version = "1.22.0")
+go_register_toolchains(version = "1.24.12")
 
 gazelle_dependencies()
 
@@ -37,7 +37,7 @@ load("@bazel_gazelle//:deps.bzl", "go_repository")
 go_repository(
     name = "com_github_hajimehoshi_ebiten_v2",
     importpath = "github.com/hajimehoshi/ebiten/v2",
-    sum = "h1:EDe2CXBa+2eLO0xXXRPYbCjOa/pBfRN4uJw1fLUxkkE=",
+    sum = "h1:WuNgM24uJxwdLZLqM8SXLAGVBof/45udRjo2tJoTpM0=",
     version = "v2.9.7",
 )
 
@@ -51,21 +51,21 @@ go_repository(
 go_repository(
     name = "com_github_ebitengine_purego",
     importpath = "github.com/ebitengine/purego",
-    sum = "h1:HbY7VE4L5+MZH2ZZSFrlxc/C4HnOJ7VEyAzCr+IwmzY=",
+    sum = "h1:mh0zpKBIXDceC63hpvPuGLiJ8ZAa3DfrFTudmfi8A4k=",
     version = "v0.9.0",
 )
 
 go_repository(
     name = "com_github_ebitengine_hideconsole",
     importpath = "github.com/ebitengine/hideconsole",
-    sum = "h1:wJoqI+hbqYfKKXqb3VYoEVvUkVXTAo2GXj0XPYVdCTk=",
+    sum = "h1:5J4U0kXF+pv/DhiXt5/lTz0eO5ogJ1iXb8Yj1yReDqE=",
     version = "v1.0.0",
 )
 
 go_repository(
     name = "com_github_jezek_xgb",
     importpath = "github.com/jezek/xgb",
-    sum = "h1:YUGhxps0aR7J2Xplbs23OHnV1mWaxFVcOl9b+1RQkt8=",
+    sum = "h1:bE/r8ZZtSv7l9gk6nU0mYx51aXrvnyb44892TwSaqS4=",
     version = "v1.1.1",
 )
 
