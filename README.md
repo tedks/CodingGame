@@ -29,8 +29,8 @@ CodingGame is a **game interface to coding**, not a game about coding. It uses g
 git clone https://github.com/tedks/CodingGame.git
 cd CodingGame
 
-# Enter Nix environment
-nix develop
+# Automated setup (installs Nix + direnv)
+./scripts/setup-dev-env.sh
 
 # Build with Bazel
 bazel build //...
@@ -39,7 +39,7 @@ bazel build //...
 bazel run //:codinggame
 ```
 
-**With direnv**: Just `cd CodingGame && direnv allow` and the environment loads automatically!
+**Manual setup**: If you already have Nix installed, just `cd CodingGame && direnv allow` or `nix develop`
 
 ### Alternative: Go Modules
 

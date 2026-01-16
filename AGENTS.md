@@ -93,6 +93,22 @@ This project uses **Nix** for environmental dependencies and **Bazel** for code 
 - **Bazel** manages code dependencies: Go packages, external libraries
 - **Result**: Hermetic, reproducible builds across all environments
 
+### First-Time Setup: Installing Nix + Bazel
+
+**If you don't have Nix installed yet**, run the automated setup script:
+
+```bash
+./scripts/setup-dev-env.sh
+```
+
+This script will:
+1. Install Nix package manager with flakes support
+2. Optionally install direnv for automatic environment loading
+3. Verify that Bazel and Go are available
+4. Configure everything for CodingGame development
+
+**Manual installation**: See [BUILD.md](BUILD.md) for detailed Nix installation instructions.
+
 ### Environment Setup
 
 **CRITICAL**: You must ALWAYS be in a Nix environment when working on this project.
