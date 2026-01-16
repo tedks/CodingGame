@@ -138,8 +138,12 @@ func (p *PromptPanel) Clear() {
 }
 
 // Submit triggers the submit callback with the current text.
+// Does nothing if text is empty.
 func (p *PromptPanel) Submit() {
-	if p.OnSubmit != nil && p.Text != "" {
+	if p.Text == "" {
+		return // Don't submit empty text
+	}
+	if p.OnSubmit != nil {
 		p.OnSubmit(p.Text)
 	}
 	p.State = PromptStateProcessing

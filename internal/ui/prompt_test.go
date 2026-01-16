@@ -146,12 +146,18 @@ func TestPromptPanel_Submit_EmptyText(t *testing.T) {
 		callbackCalled = true
 	}
 
-	// Submit with empty text should not call callback
+	// Set initial state to Active
+	p.SetState(PromptStateActive)
+
+	// Submit with empty text should not call callback or change state
 	p.SetText("")
 	p.Submit()
 
 	if callbackCalled {
 		t.Error("OnSubmit should not be called with empty text")
+	}
+	if p.State != PromptStateActive {
+		t.Errorf("State should remain Active with empty text, got %v", p.State)
 	}
 }
 
