@@ -63,25 +63,48 @@ bd sync               # Sync with git
 
 **MANDATORY WORKFLOW:**
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+1. **Verify development environment** - Ensure Nix + Bazel are working:
+   ```bash
+   ./scripts/setup.sh --verify
+   # OR manually:
+   which bazel && which go  # Must return paths
+   ```
+
+2. **File issues for remaining work** - Create issues for anything that needs follow-up
+
+3. **Run quality gates** (if code changed) - Tests, linters, builds:
+   ```bash
+   # Ensure you're in Nix environment
+   which bazel || nix develop
+
+   # Run quality checks
+   bazel build //...
+   bazel test //...
+   go fmt ./...
+   ```
+
+4. **Update issue status** - Close finished work, update in-progress items
+
+5. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
+   bd sync  # If beads is installed
    git push
    git status  # MUST show "up to date with origin"
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+
+6. **Clean up** - Clear stashes, prune remote branches
+
+7. **Verify** - All changes committed AND pushed
+
+8. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
 - Work is NOT complete until `git push` succeeds
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
+- ALWAYS verify Nix/Bazel environment before running quality gates
 
 ## Building and Testing
 
@@ -92,6 +115,31 @@ This project uses **Nix** for environmental dependencies and **Bazel** for code 
 - **Nix** manages environmental dependencies: Go toolchain, Bazel, system libraries (X11, etc.)
 - **Bazel** manages code dependencies: Go packages, external libraries
 - **Result**: Hermetic, reproducible builds across all environments
+
+### First-Time Setup: Complete Development Environment
+
+**If you don't have Nix, Bazel, and beads installed yet**, run the automated setup script:
+
+```bash
+./scripts/setup.sh
+```
+
+This single script installs everything you need:
+1. Nix package manager with flakes support
+2. direnv for automatic environment loading (optional)
+3. Bazel and Go (via Nix environment)
+4. beads issue tracking system
+5. All necessary git hooks and configurations
+
+**Partial setup options:**
+```bash
+./scripts/setup.sh --verify        # Check existing setup
+./scripts/setup.sh --skip-direnv   # Skip direnv installation
+./scripts/setup.sh --skip-beads    # Skip beads setup
+./scripts/setup.sh --beads-only    # Only install beads
+```
+
+**Manual installation**: See [BUILD.md](BUILD.md) for detailed step-by-step instructions.
 
 ### Environment Setup
 
