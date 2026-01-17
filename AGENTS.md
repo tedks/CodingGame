@@ -164,6 +164,16 @@ which bazel  # Should now work
 
 **Note**: All build and test commands below assume you're in the Nix environment.
 
+**Generate .bazelrc.user (first time or after Nix update):**
+
+The `.bazelrc.user` file contains machine-specific Nix store paths needed for CGO compilation. Generate it with:
+
+```bash
+./scripts/gen-bazelrc-user.sh
+```
+
+This is required the first time you set up the project, and should be re-run if you update Nix packages.
+
 ### Build Commands
 
 ```bash
@@ -195,6 +205,13 @@ bazel test //internal/tile:tile_test
 bazel test //... --test_output=all
 ```
 
+**Headless environments (no display):** When running without a display (SSH, CI, etc.), use xvfb-run:
+
+```bash
+# Run all tests in headless environment
+xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...
+```
+
 **Alternative (one-off commands):**
 ```bash
 nix develop --command bazel test //...
@@ -208,7 +225,7 @@ go test ./internal/...  # May fail due to missing system deps
 
 **Why this matters:**
 - Ebitengine requires X11/OpenGL libraries that Nix provides
-- Some tests need `xvfb-run` for headless display (Bazel handles this)
+- Some tests need `xvfb-run` for headless display
 - `go test` may pass locally but fail in CI due to environment differences
 
 ### Quality Gates (Pre-Commit)

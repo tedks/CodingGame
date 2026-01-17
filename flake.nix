@@ -14,7 +14,10 @@
         # X11 libraries needed for Ebitengine on Linux
         x11Libs = with pkgs; [
           xorg.libX11
+          xorg.libXext
+          xorg.libXfixes
           xorg.libXrandr
+          xorg.libXrender
           xorg.libXcursor
           xorg.libXinerama
           xorg.libXi
@@ -65,6 +68,10 @@
             # Set up environment for X11 on Linux
             ${pkgs.lib.optionalString pkgs.stdenv.isLinux ''
               export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath x11Libs}:$LD_LIBRARY_PATH"
+              export LIBRARY_PATH="${pkgs.lib.makeLibraryPath x11Libs}:$LIBRARY_PATH"
+              export C_INCLUDE_PATH="${pkgs.lib.makeSearchPathOutput "dev" "include" x11Libs}:$C_INCLUDE_PATH"
+              export CGO_CFLAGS="-I${pkgs.xorg.libX11.dev}/include -I${pkgs.xorg.xorgproto}/include $CGO_CFLAGS"
+              export CGO_LDFLAGS="-L${pkgs.xorg.libX11}/lib $CGO_LDFLAGS"
             ''}
 
             # Bazel configuration
