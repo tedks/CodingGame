@@ -2,14 +2,20 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "game",
-    srcs = ["game.go"],
+    srcs = [
+        "app.go",
+        "game.go",
+        "scene.go",
+    ],
     importpath = "github.com/tedks/CodingGame/internal/game",
     visibility = ["//visibility:public"],
     deps = [
         "//internal/advisor",
         "//internal/claude",
+        "//internal/input",
         "//internal/mapview",
         "//internal/resources",
+        "//internal/ui",
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
         "@com_github_hajimehoshi_ebiten_v2//ebitenutil",
     ],

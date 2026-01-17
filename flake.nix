@@ -25,7 +25,7 @@
 
         # Build inputs
         buildInputs = [
-          pkgs.go_1_22
+          pkgs.go_1_24
           pkgs.bazel_7
           pkgs.buildifier
           pkgs.buildozer

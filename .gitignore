@@ -6,6 +6,11 @@
 # Bazel artifacts
 bazel-*
 .bazelrc.user
+MODULE.bazel
+MODULE.bazel.lock
+
+# Claude Code artifacts
+@*
 
 # Nix
 .direnv/

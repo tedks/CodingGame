@@ -9,6 +9,7 @@ package game
 
 import (
 	"fmt"
+	"image/color"
 	"path/filepath"
 	"time"
 
@@ -123,8 +124,8 @@ func (g *Game) Update() error {
 
 // Draw renders the game (called 60 times per second)
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Clear screen
-	screen.Fill(ebiten.ColorScale{}.Scale(0, 0, 0, 1).Apply())
+	// Clear screen with black
+	screen.Fill(color.RGBA{0, 0, 0, 255})
 
 	// Draw resource bar at top
 	g.resources.Draw(screen, 0, 0, g.width, ResourceBarHeight)

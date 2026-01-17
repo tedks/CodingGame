@@ -15,16 +15,18 @@ const (
 
 func main() {
 	// Parse command-line arguments for project path
-	projectPath := "."
+	// If provided, skip the start screen and go directly to the project
+	projectPath := ""
 	if len(os.Args) > 1 {
 		projectPath = os.Args[1]
 	}
 
-	// Initialize game
-	g, err := game.New(projectPath, screenWidth, screenHeight)
+	// Initialize application
+	app, err := game.NewApp(projectPath, screenWidth, screenHeight)
 	if err != nil {
-		log.Fatalf("failed to initialize game: %v", err)
+		log.Fatalf("failed to initialize application: %v", err)
 	}
+	defer app.Close()
 
 	// Configure window
 	ebiten.SetWindowSize(screenWidth, screenHeight)
@@ -32,7 +34,7 @@ func main() {
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
 	// Run game loop
-	if err := ebiten.RunGame(g); err != nil {
-		log.Fatalf("game error: %v", err)
+	if err := ebiten.RunGame(app); err != nil {
+		log.Fatalf("application error: %v", err)
 	}
 }
