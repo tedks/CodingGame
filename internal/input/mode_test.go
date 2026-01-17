@@ -82,7 +82,7 @@ func TestPrevFocus(t *testing.T) {
 		current  FocusArea
 		expected FocusArea
 	}{
-		{FocusMap, FocusResponse},     // Wrap around backwards
+		{FocusMap, FocusResponse}, // Wrap around backwards
 		{FocusPrompt, FocusMap},
 		{FocusAdvisors, FocusPrompt},
 		{FocusMissions, FocusAdvisors},

@@ -29,19 +29,19 @@ type PromptPanel struct {
 	Width, Height int
 
 	// State
-	State      PromptState
-	Text       string
-	Mode       string // Current mode indicator (NORMAL, INSERT, etc.)
+	State       PromptState
+	Text        string
+	Mode        string // Current mode indicator (NORMAL, INSERT, etc.)
 	Placeholder string
 
 	// Styling
-	BackgroundColor   color.RGBA
-	BorderColor       color.RGBA
+	BackgroundColor    color.RGBA
+	BorderColor        color.RGBA
 	FocusedBorderColor color.RGBA
-	TextColor         color.RGBA
-	PlaceholderColor  color.RGBA
-	ModeColor         color.RGBA
-	CursorColor       color.RGBA
+	TextColor          color.RGBA
+	PlaceholderColor   color.RGBA
+	ModeColor          color.RGBA
+	CursorColor        color.RGBA
 
 	// Cursor animation
 	cursorVisible bool
@@ -49,7 +49,7 @@ type PromptPanel struct {
 
 	// Callbacks
 	OnSubmit func(text string) // Called when prompt is submitted
-	OnCancel func()           // Called when prompt is cancelled
+	OnCancel func()            // Called when prompt is cancelled
 }
 
 // NewPromptPanel creates a new prompt panel with default styling.

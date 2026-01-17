@@ -12,19 +12,19 @@ type Handler struct {
 	mu sync.RWMutex
 
 	// Current state
-	mode      Mode
-	focus     FocusArea
-	view      ViewNumber
-	bindings  *Bindings
+	mode     Mode
+	focus    FocusArea
+	view     ViewNumber
+	bindings *Bindings
 
 	// Event callbacks
-	onAction     func(Action)
-	onModeChange func(Mode)
+	onAction      func(Action)
+	onModeChange  func(Mode)
 	onFocusChange func(FocusArea)
-	onViewChange func(ViewNumber)
+	onViewChange  func(ViewNumber)
 
 	// Text input buffer (for Insert mode)
-	textBuffer string
+	textBuffer   string
 	onTextChange func(string)
 }
 

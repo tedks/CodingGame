@@ -57,10 +57,10 @@ type StartScreen struct {
 // NewStartScreen creates a new start screen.
 func NewStartScreen(width, height int, onComplete func(config GameConfig)) *StartScreen {
 	ss := &StartScreen{
-		width:      width,
-		height:     height,
-		state:      StateMainMenu,
-		onComplete: onComplete,
+		width:          width,
+		height:         height,
+		state:          StateMainMenu,
+		onComplete:     onComplete,
 		recentProjects: []string{
 			// These would be loaded from a config file
 		},
