@@ -132,6 +132,8 @@ func (gs *GameScene) setupInputCallbacks() {
 			gs.handlePromptSubmit()
 		case input.ActionCancelPrompt:
 			gs.handlePromptCancel()
+		case input.ActionToggleMapView:
+			gs.mapView.ToggleViewMode()
 		}
 	})
 
@@ -237,11 +239,13 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	// Draw debug info
 	mode := gs.inputHandler.Mode().String()
 	focus := gs.inputHandler.Focus().String()
+	viewMode := gs.mapView.ViewMode().String()
 	debugText := fmt.Sprintf(
-		"FPS: %.1f | Mode: %s | Focus: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom",
+		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, T=toggle view",
 		ebiten.ActualFPS(),
 		mode,
 		focus,
+		viewMode,
 		gs.mapView.ZoomLevel(),
 		gs.mapView.PanX(),
 		gs.mapView.PanY(),
