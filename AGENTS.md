@@ -179,32 +179,45 @@ bazel build //internal/tile
 
 ### Running Tests
 
-**ALWAYS use Bazel for running tests:**
+**CRITICAL: ONLY run tests through Nix + Bazel. NEVER use `go test` directly.**
+
+Using `go test` bypasses the hermetic build environment and may produce inconsistent results. The Nix environment ensures all system dependencies (X11, OpenGL, etc.) are correctly configured.
+
+**Recommended approach:** Enter the Nix environment once, then use bazel directly:
 
 ```bash
-# Run all tests
+# Enter Nix environment (do this once per session)
+nix develop
+
+# Then use bazel directly (saves tokens vs. nix develop --command each time)
 bazel test //...
-
-# Run specific package tests
 bazel test //internal/tile:tile_test
-bazel test //internal/claude:claude_test
-bazel test //internal/mapview:mapview_test
-bazel test //internal/game:game_test
-
-# Run with verbose output
 bazel test //... --test_output=all
-
-# Run tests showing only errors
-bazel test //... --test_output=errors
 ```
+
+**Alternative (one-off commands):**
+```bash
+nix develop --command bazel test //...
+```
+
+**WRONG - DO NOT DO THIS:**
+```bash
+go test ./...           # Bypasses Nix environment
+go test ./internal/...  # May fail due to missing system deps
+```
+
+**Why this matters:**
+- Ebitengine requires X11/OpenGL libraries that Nix provides
+- Some tests need `xvfb-run` for headless display (Bazel handles this)
+- `go test` may pass locally but fail in CI due to environment differences
 
 ### Quality Gates (Pre-Commit)
 
-Before committing code changes, run:
+Before committing code changes, run inside Nix environment:
 
 ```bash
-# Ensure you're in Nix environment
-which bazel || nix develop
+# Enter Nix environment (if not already)
+nix develop
 
 # Build everything
 bazel build //...
