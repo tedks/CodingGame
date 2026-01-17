@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "delve",
+    srcs = ["adapter.go"],
+    importpath = "github.com/tedks/CodingGame/internal/debug/delve",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/debug",
+    ],
+)
+
+go_test(
+    name = "delve_test",
+    srcs = ["adapter_test.go"],
+    embed = [":delve"],
+    deps = [
+        "//internal/debug",
+    ],
+)
