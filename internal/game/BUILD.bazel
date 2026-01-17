@@ -12,6 +12,7 @@ go_library(
     deps = [
         "//internal/advisor",
         "//internal/claude",
+        "//internal/dependency",
         "//internal/input",
         "//internal/mapview",
         "//internal/resources",
