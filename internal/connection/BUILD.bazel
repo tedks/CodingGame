@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "connection",
+    srcs = [
+        "connection.go",
+        "graph.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/connection",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "connection_test",
+    srcs = [
+        "connection_test.go",
+        "graph_test.go",
+    ],
+    embed = [":connection"],
+)
