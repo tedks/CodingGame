@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "dependency",
+    srcs = ["extract.go"],
+    importpath = "github.com/tedks/CodingGame/internal/dependency",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/connection",
+    ],
+)
+
+go_test(
+    name = "dependency_test",
+    srcs = ["extract_test.go"],
+    embed = [":dependency"],
+    deps = [
+        "//internal/connection",
+    ],
+)
