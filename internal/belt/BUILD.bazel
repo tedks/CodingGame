@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "belt",
+    srcs = ["belt.go"],
+    importpath = "github.com/tedks/CodingGame/internal/belt",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/connection",
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+        "@com_github_hajimehoshi_ebiten_v2//vector",
+    ],
+)
+
+go_test(
+    name = "belt_test",
+    srcs = ["belt_test.go"],
+    embed = [":belt"],
+    deps = [
+        "//internal/connection",
+    ],
+)
