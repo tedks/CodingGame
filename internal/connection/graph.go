@@ -101,6 +101,9 @@ func (g *Graph) Remove(id string) bool {
 // removeFromIndex removes a connection from an index slice.
 func (g *Graph) removeFromIndex(index map[string][]*Connection, key string, c *Connection) {
 	conns := index[key]
+	if len(conns) == 0 {
+		return // Shouldn't happen, but be defensive
+	}
 	for i, conn := range conns {
 		if conn.ID() == c.ID() {
 			// Remove by swapping with last and truncating

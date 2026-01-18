@@ -11,6 +11,7 @@
 package dependency
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -99,7 +100,10 @@ func (e *Extractor) ExtractGo() (*connection.Graph, error) {
 		}
 
 		// Parse the file
-		e.extractFileImports(path, graph)
+		if err := e.extractFileImports(path, graph); err != nil {
+			// Log but don't fail - allow partial graphs
+			fmt.Printf("Warning: failed to parse %s: %v\n", path, err)
+		}
 		return nil
 	})
 
@@ -114,11 +118,11 @@ func (e *Extractor) ExtractGo() (*connection.Graph, error) {
 }
 
 // extractFileImports parses a single Go file and adds its imports to the graph.
-func (e *Extractor) extractFileImports(filePath string, graph *connection.Graph) {
+func (e *Extractor) extractFileImports(filePath string, graph *connection.Graph) error {
 	// Get relative path for this file
 	relPath, err := filepath.Rel(e.projectRoot, filePath)
 	if err != nil {
-		return
+		return err
 	}
 	relPath = filepath.ToSlash(relPath)
 
@@ -126,7 +130,7 @@ func (e *Extractor) extractFileImports(filePath string, graph *connection.Graph)
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filePath, nil, parser.ImportsOnly)
 	if err != nil {
-		return
+		return err
 	}
 
 	// Extract imports
@@ -153,6 +157,7 @@ func (e *Extractor) extractFileImports(filePath string, graph *connection.Graph)
 			conn.SetExternal(true)
 		}
 	}
+	return nil
 }
 
 // ExtractGoWithSymbols extracts Go dependencies with symbol-level detail.

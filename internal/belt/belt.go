@@ -29,7 +29,8 @@ type Renderer struct {
 	circularColor    color.RGBA
 
 	// Animation state
-	startTime time.Time
+	startTime  time.Time
+	frameCount int64 // Frame counter to avoid floating-point precision issues
 
 	// Rendering parameters
 	minWidth    float32 // Minimum belt width
@@ -92,8 +93,12 @@ func (r *Renderer) Draw(
 	}
 
 	// Calculate animation offset based on time
+	// Use modulo on elapsed time to prevent unbounded growth
 	elapsed := time.Since(r.startTime).Seconds()
-	animOffset := float32(math.Mod(elapsed*r.animSpeed, float64(r.dashLength+r.dashGap)))
+	dashPeriod := float64(r.dashLength + r.dashGap)
+	// Reset elapsed periodically to avoid floating-point precision degradation
+	elapsed = math.Mod(elapsed, dashPeriod*1000) // Reset every 1000 periods
+	animOffset := float32(math.Mod(elapsed*r.animSpeed, dashPeriod))
 
 	// Draw all connections
 	for _, conn := range graph.All() {

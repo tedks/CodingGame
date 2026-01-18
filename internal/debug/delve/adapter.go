@@ -104,14 +104,21 @@ func (a *Adapter) Launch(program string, args []string, cwd string) (*debug.Sess
 		return nil, fmt.Errorf("failed to start dlv: %w", err)
 	}
 
-	// Give dlv time to start listening
-	time.Sleep(500 * time.Millisecond)
-
-	// Connect to dlv
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 5*time.Second)
+	// Connect to dlv with retries instead of fixed sleep
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	var conn net.Conn
+	var err error
+	for i := 0; i < 10; i++ {
+		conn, err = net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if err != nil {
 		cmd.Process.Kill()
-		return nil, fmt.Errorf("failed to connect to dlv: %w", err)
+		cmd.Wait() // Prevent zombie process
+		return nil, fmt.Errorf("failed to connect to dlv after retries: %w", err)
 	}
 
 	// Create session
@@ -160,14 +167,21 @@ func (a *Adapter) Attach(pid int) (*debug.Session, error) {
 		return nil, fmt.Errorf("failed to start dlv: %w", err)
 	}
 
-	// Give dlv time to attach
-	time.Sleep(500 * time.Millisecond)
-
-	// Connect to dlv
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 5*time.Second)
+	// Connect to dlv with retries instead of fixed sleep
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	var conn net.Conn
+	var err error
+	for i := 0; i < 10; i++ {
+		conn, err = net.DialTimeout("tcp", addr, 500*time.Millisecond)
+		if err == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if err != nil {
 		cmd.Process.Kill()
-		return nil, fmt.Errorf("failed to connect to dlv: %w", err)
+		cmd.Wait() // Prevent zombie process
+		return nil, fmt.Errorf("failed to connect to dlv after retries: %w", err)
 	}
 
 	// Create session
