@@ -17,6 +17,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/tedks/CodingGame/internal/advisor"
 	"github.com/tedks/CodingGame/internal/claude"
+	"github.com/tedks/CodingGame/internal/dependency"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/resources"
 )
@@ -66,6 +67,16 @@ func New(projectPath string, width, height int) (*Game, error) {
 	advisorPool := advisor.NewPool()
 	if err := advisorPool.LoadFromConfig(advisor.DefaultConfigs()); err != nil {
 		return nil, fmt.Errorf("failed to load advisor configs: %w", err)
+	}
+
+	// Extract Go dependencies for dataflow visualization (Phase 4)
+	extractor, err := dependency.NewExtractor(projectPath)
+	if err == nil {
+		// Use symbol-level extraction for more accurate coupling strength
+		graph, err := extractor.ExtractGoWithSymbols()
+		if err == nil && graph != nil {
+			mapView.SetConnectionGraph(graph)
+		}
 	}
 
 	g := &Game{

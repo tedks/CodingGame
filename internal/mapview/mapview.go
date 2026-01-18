@@ -15,8 +15,32 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/belt"
+	"github.com/tedks/CodingGame/internal/connection"
 	"github.com/tedks/CodingGame/internal/tile"
 )
+
+// ViewMode represents which view of the map is active.
+type ViewMode int
+
+const (
+	// ViewDirectory shows the filesystem hierarchy as a tile grid.
+	ViewDirectory ViewMode = iota
+	// ViewDataflow shows dependencies as Factorio-style belts.
+	ViewDataflow
+)
+
+// String returns a human-readable name for the view mode.
+func (v ViewMode) String() string {
+	switch v {
+	case ViewDirectory:
+		return "Directory"
+	case ViewDataflow:
+		return "Dataflow"
+	default:
+		return "Unknown"
+	}
+}
 
 // ZoomLevel represents the current zoom level (1-5)
 type ZoomLevel int
@@ -39,6 +63,9 @@ type MapView struct {
 	width       int
 	height      int
 
+	// View state
+	viewMode ViewMode // Directory or Dataflow
+
 	// Camera state
 	panX      float64
 	panY      float64
@@ -53,6 +80,17 @@ type MapView struct {
 	gridColor     color.RGBA
 	fogColor      color.RGBA
 	revealedColor color.RGBA
+
+	// Dataflow colors (used in ViewDataflow mode)
+	beltImportColor      color.RGBA
+	beltInheritanceColor color.RGBA
+	beltCompositionColor color.RGBA
+	beltCallColor        color.RGBA
+	beltCircularColor    color.RGBA
+
+	// Belt rendering (Phase 4)
+	beltRenderer    *belt.Renderer
+	connectionGraph *connection.Graph
 }
 
 // New creates a new map view for the given project path
@@ -73,6 +111,7 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		projectPath:   projectPath,
 		width:         width,
 		height:        height,
+		viewMode:      ViewDirectory, // Default to directory view
 		panX:          0,
 		panY:          0,
 		zoomLevel:     ZoomWorld,
@@ -82,6 +121,16 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		gridColor:     color.RGBA{60, 60, 80, 255},
 		fogColor:      color.RGBA{40, 40, 50, 200},
 		revealedColor: color.RGBA{100, 120, 150, 255},
+		// Belt colors for dataflow view
+		beltImportColor:      color.RGBA{100, 150, 200, 255}, // Blue for imports
+		beltInheritanceColor: color.RGBA{200, 150, 100, 255}, // Orange for inheritance
+		beltCompositionColor: color.RGBA{150, 200, 100, 255}, // Green for composition
+		beltCallColor:        color.RGBA{200, 100, 200, 255}, // Purple for calls
+		beltCircularColor:    color.RGBA{255, 80, 80, 255},   // Red for circular deps
+
+		// Belt rendering
+		beltRenderer:    belt.NewRenderer(),
+		connectionGraph: connection.NewGraph(),
 	}, nil
 }
 
@@ -156,7 +205,7 @@ func (m *MapView) Update() {
 	// Future: Handle animations, fog reveal transitions, etc.
 }
 
-// Draw renders the map view
+// Draw renders the map view based on current view mode.
 func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 	// Draw the background for the map area
 	vector.DrawFilledRect(
@@ -169,6 +218,16 @@ func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 		false,
 	)
 
+	switch m.viewMode {
+	case ViewDirectory:
+		m.drawDirectoryView(screen, offsetX, offsetY)
+	case ViewDataflow:
+		m.drawDataflowView(screen, offsetX, offsetY)
+	}
+}
+
+// drawDirectoryView renders the filesystem hierarchy as a tile grid.
+func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) {
 	// Calculate tile size based on zoom level
 	tileSize := m.getTileSize()
 	tilesPerRow := m.width / int(tileSize)
@@ -194,6 +253,74 @@ func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 
 	// Draw grid lines
 	m.drawGrid(screen, offsetX, offsetY, tileSize)
+}
+
+// drawDataflowView renders dependencies as Factorio-style belts.
+// In this view, tiles are positioned based on dependency relationships,
+// and connections (belts) are drawn between them.
+func (m *MapView) drawDataflowView(screen *ebiten.Image, offsetX, offsetY int) {
+	// Calculate tile size based on zoom level
+	tileSize := m.getTileSize()
+	tilesPerRow := m.width / int(tileSize)
+
+	// Build tile position map for belt rendering
+	tilePositions := make(map[string]belt.TilePosition)
+	for i, t := range m.tiles {
+		col := i % tilesPerRow
+		row := i / tilesPerRow
+
+		x := float64(col)*tileSize + m.panX + float64(offsetX)
+		y := float64(row)*tileSize + m.panY + float64(offsetY)
+
+		// Store position using relative path for matching with connections
+		tilePositions[t.RelPath()] = belt.TilePosition{
+			X:      float32(x),
+			Y:      float32(y),
+			Width:  float32(tileSize),
+			Height: float32(tileSize),
+		}
+	}
+
+	// Draw tiles first (belts will be drawn on top)
+	for i, t := range m.tiles {
+		col := i % tilesPerRow
+		row := i / tilesPerRow
+
+		x := float64(col)*tileSize + m.panX + float64(offsetX)
+		y := float64(row)*tileSize + m.panY + float64(offsetY)
+
+		if x+tileSize < 0 || x > float64(m.width) || y+tileSize < 0 || y > float64(m.height) {
+			continue
+		}
+
+		m.drawTile(screen, t, float32(x), float32(y), float32(tileSize))
+	}
+
+	// Draw belts (connections)
+	m.beltRenderer.Draw(screen, m.connectionGraph, tilePositions, 0, 0)
+
+	// Draw grid lines with a different style to indicate dataflow mode
+	m.drawDataflowGrid(screen, offsetX, offsetY, tileSize)
+}
+
+// drawDataflowGrid draws grid lines styled for dataflow view.
+func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, tileSize float64) {
+	// Use a slightly different color to indicate we're in dataflow mode
+	gridColor := color.RGBA{80, 60, 100, 255} // Purple tint for dataflow
+
+	// Draw vertical grid lines
+	for x := m.panX + float64(offsetX); x < float64(m.width); x += tileSize {
+		if x >= 0 {
+			vector.StrokeLine(screen, float32(x), 0, float32(x), float32(m.height), 1, gridColor, false)
+		}
+	}
+
+	// Draw horizontal grid lines
+	for y := m.panY + float64(offsetY); y < float64(m.height); y += tileSize {
+		if y >= 0 {
+			vector.StrokeLine(screen, 0, float32(y), float32(m.width), float32(y), 1, gridColor, false)
+		}
+	}
 }
 
 // drawTile renders a single tile
@@ -309,4 +436,40 @@ func (m *MapView) RevealTile(path string) {
 	if t, exists := m.tileMap[path]; exists {
 		t.Reveal()
 	}
+}
+
+// ViewMode returns the current view mode.
+func (m *MapView) ViewMode() ViewMode {
+	return m.viewMode
+}
+
+// SetViewMode sets the current view mode.
+func (m *MapView) SetViewMode(mode ViewMode) {
+	m.viewMode = mode
+}
+
+// ToggleViewMode switches between Directory and Dataflow views.
+func (m *MapView) ToggleViewMode() {
+	if m.viewMode == ViewDirectory {
+		m.viewMode = ViewDataflow
+	} else {
+		m.viewMode = ViewDirectory
+	}
+}
+
+// ConnectionGraph returns the connection graph for this map view.
+func (m *MapView) ConnectionGraph() *connection.Graph {
+	return m.connectionGraph
+}
+
+// SetConnectionGraph sets the connection graph for belt visualization.
+// The graph should contain connections using relative paths matching tile RelPath().
+func (m *MapView) SetConnectionGraph(graph *connection.Graph) {
+	m.connectionGraph = graph
+}
+
+// AddConnection adds a single connection to the graph.
+// from and to should be relative paths matching tile RelPath().
+func (m *MapView) AddConnection(from, to string, connType connection.Type) *connection.Connection {
+	return m.connectionGraph.AddNew(from, to, connType)
 }

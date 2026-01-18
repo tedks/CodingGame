@@ -2,8 +2,8 @@
 build --incompatible_enable_cc_toolchain_resolution
 build --enable_platform_specific_config
 
-# Go settings
-build --@io_bazel_rules_go//go/config:static
+# Go settings - use dynamic linking for CGO compatibility with Nix glibc
+build --@io_bazel_rules_go//go/config:static=false
 
 # Enable verbose failures
 build --verbose_failures
@@ -23,6 +23,10 @@ build:macos --linkopt=-fPIC
 test --test_output=errors
 test --test_summary=detailed
 
+# Pass DISPLAY and XAUTHORITY for X11 tests (requires xvfb-run for headless)
+test --test_env=DISPLAY
+test --test_env=XAUTHORITY
+
 # Performance
 build --jobs=auto
 
@@ -31,9 +35,15 @@ build:release --compilation_mode=opt
 build:debug --compilation_mode=dbg
 
 # Nix-specific settings (when building in Nix environment)
+# Pass through environment variables needed for CGO compilation
 build:nix --action_env=PATH
 build:nix --action_env=LD_LIBRARY_PATH
 build:nix --action_env=PKG_CONFIG_PATH
+build:nix --action_env=CGO_CFLAGS
+build:nix --action_env=CGO_LDFLAGS
+build:nix --action_env=C_INCLUDE_PATH
+build:nix --action_env=CPLUS_INCLUDE_PATH
+build:nix --action_env=LIBRARY_PATH
 
 # Try loading a user-specific .bazelrc file if it exists
 try-import %workspace%/.bazelrc.user

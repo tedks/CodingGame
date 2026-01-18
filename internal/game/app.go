@@ -8,8 +8,8 @@ import (
 // App is the top-level application that manages scenes and implements ebiten.Game.
 // It handles the transition from start screen to gameplay.
 type App struct {
-	width       int
-	height      int
+	width        int
+	height       int
 	sceneManager *ui.SceneManager
 
 	// Direct project path bypasses start screen

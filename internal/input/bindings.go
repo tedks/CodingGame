@@ -34,10 +34,10 @@ const (
 	ActionExitMode // Exit to Normal mode
 
 	// Focus actions
-	ActionFocusNext     // Tab to next panel
-	ActionFocusPrev     // Shift+Tab to previous panel
-	ActionFocusPrompt   // Quick focus to prompt
-	ActionFocusMap      // Quick focus to map
+	ActionFocusNext   // Tab to next panel
+	ActionFocusPrev   // Shift+Tab to previous panel
+	ActionFocusPrompt // Quick focus to prompt
+	ActionFocusMap    // Quick focus to map
 
 	// View switching (1-5)
 	ActionView1
@@ -57,6 +57,9 @@ const (
 	// Search/Go-to
 	ActionSearch // '/' to search
 	ActionGoTo   // 'g' to go to file
+
+	// Map view actions
+	ActionToggleMapView // Toggle between Directory and Dataflow views
 )
 
 // Binding maps a key combination to an action.
@@ -147,6 +150,11 @@ func (b *Bindings) loadVimBindings() {
 	b.bindings = append(b.bindings,
 		Binding{Key: ebiten.KeySlash, Action: ActionSearch, Modes: normalMode},
 		Binding{Key: ebiten.KeyG, Action: ActionGoTo, Modes: normalMode},
+	)
+
+	// Map view toggle
+	b.bindings = append(b.bindings,
+		Binding{Key: ebiten.KeyT, Action: ActionToggleMapView, Modes: normalMode},
 	)
 
 	// Prompt actions in Insert mode

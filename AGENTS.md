@@ -164,6 +164,16 @@ which bazel  # Should now work
 
 **Note**: All build and test commands below assume you're in the Nix environment.
 
+**Generate .bazelrc.user (first time or after Nix update):**
+
+The `.bazelrc.user` file contains machine-specific Nix store paths needed for CGO compilation. Generate it with:
+
+```bash
+./scripts/gen-bazelrc-user.sh
+```
+
+This is required the first time you set up the project, and should be re-run if you update Nix packages.
+
 ### Build Commands
 
 ```bash
@@ -179,32 +189,52 @@ bazel build //internal/tile
 
 ### Running Tests
 
-**ALWAYS use Bazel for running tests:**
+**CRITICAL: ONLY run tests through Nix + Bazel. NEVER use `go test` directly.**
+
+Using `go test` bypasses the hermetic build environment and may produce inconsistent results. The Nix environment ensures all system dependencies (X11, OpenGL, etc.) are correctly configured.
+
+**Recommended approach:** Enter the Nix environment once, then use bazel directly:
 
 ```bash
-# Run all tests
+# Enter Nix environment (do this once per session)
+nix develop
+
+# Then use bazel directly (saves tokens vs. nix develop --command each time)
 bazel test //...
-
-# Run specific package tests
 bazel test //internal/tile:tile_test
-bazel test //internal/claude:claude_test
-bazel test //internal/mapview:mapview_test
-bazel test //internal/game:game_test
-
-# Run with verbose output
 bazel test //... --test_output=all
-
-# Run tests showing only errors
-bazel test //... --test_output=errors
 ```
+
+**Headless environments (no display):** When running without a display (SSH, CI, etc.), use xvfb-run:
+
+```bash
+# Run all tests in headless environment
+xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...
+```
+
+**Alternative (one-off commands):**
+```bash
+nix develop --command bazel test //...
+```
+
+**WRONG - DO NOT DO THIS:**
+```bash
+go test ./...           # Bypasses Nix environment
+go test ./internal/...  # May fail due to missing system deps
+```
+
+**Why this matters:**
+- Ebitengine requires X11/OpenGL libraries that Nix provides
+- Some tests need `xvfb-run` for headless display
+- `go test` may pass locally but fail in CI due to environment differences
 
 ### Quality Gates (Pre-Commit)
 
-Before committing code changes, run:
+Before committing code changes, run inside Nix environment:
 
 ```bash
-# Ensure you're in Nix environment
-which bazel || nix develop
+# Enter Nix environment (if not already)
+nix develop
 
 # Build everything
 bazel build //...
@@ -260,6 +290,45 @@ Understanding the metaphors helps maintain consistency:
 - Manual testing for visual elements and UX flows
 - No fake/mock metrics in tests - use real examples
 - Tests must pass in Nix environment before committing
+
+## Continuous Integration
+
+GitHub Actions runs CI automatically on PRs and pushes to master.
+
+### CI Workflow (`.github/workflows/ci.yml`)
+
+The CI pipeline:
+1. Installs Nix with flakes support
+2. Caches Nix store for faster builds
+3. Generates `.bazelrc.user` with X11 paths
+4. Runs `bazel build //...`
+5. Runs `bazel test //...` with xvfb (headless X11)
+6. Checks code formatting with `go fmt`
+
+### Claude Code Workflow (`.github/workflows/claude.yml`)
+
+When `@claude` is mentioned in issues/PRs, the Claude Code action runs with:
+- Nix environment pre-configured
+- xvfb installed for X11 tests
+- `.bazelrc.user` generated
+
+**Running tests in Claude workflow:**
+```bash
+xvfb-run -a -s "-screen 0 1024x768x24 -ac" nix develop --command bazel test //...
+```
+
+### Checking CI Status
+
+```bash
+# List recent workflow runs
+gh run list --limit 5
+
+# View specific run
+gh run view <run-id>
+
+# Watch a running workflow
+gh run watch
+```
 
 ## PR Review Guidelines
 

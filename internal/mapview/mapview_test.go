@@ -320,3 +320,90 @@ func TestConstants(t *testing.T) {
 		t.Errorf("expected BorderColorBoost 20, got %d", BorderColorBoost)
 	}
 }
+
+func TestViewMode(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	// Initial view mode should be Directory
+	if mapView.ViewMode() != ViewDirectory {
+		t.Errorf("expected initial view mode ViewDirectory, got %v", mapView.ViewMode())
+	}
+
+	// Test SetViewMode
+	mapView.SetViewMode(ViewDataflow)
+	if mapView.ViewMode() != ViewDataflow {
+		t.Errorf("expected view mode ViewDataflow, got %v", mapView.ViewMode())
+	}
+
+	mapView.SetViewMode(ViewDirectory)
+	if mapView.ViewMode() != ViewDirectory {
+		t.Errorf("expected view mode ViewDirectory, got %v", mapView.ViewMode())
+	}
+}
+
+func TestToggleViewMode(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	// Initial state: Directory
+	if mapView.ViewMode() != ViewDirectory {
+		t.Errorf("expected initial view mode ViewDirectory, got %v", mapView.ViewMode())
+	}
+
+	// Toggle to Dataflow
+	mapView.ToggleViewMode()
+	if mapView.ViewMode() != ViewDataflow {
+		t.Errorf("expected view mode ViewDataflow after toggle, got %v", mapView.ViewMode())
+	}
+
+	// Toggle back to Directory
+	mapView.ToggleViewMode()
+	if mapView.ViewMode() != ViewDirectory {
+		t.Errorf("expected view mode ViewDirectory after second toggle, got %v", mapView.ViewMode())
+	}
+
+	// Multiple toggles
+	for i := 0; i < 10; i++ {
+		mapView.ToggleViewMode()
+	}
+	// After even number of toggles, should be back to original (Directory)
+	if mapView.ViewMode() != ViewDirectory {
+		t.Errorf("expected view mode ViewDirectory after even toggles, got %v", mapView.ViewMode())
+	}
+}
+
+func TestViewModeString(t *testing.T) {
+	tests := []struct {
+		mode     ViewMode
+		expected string
+	}{
+		{ViewDirectory, "Directory"},
+		{ViewDataflow, "Dataflow"},
+		{ViewMode(99), "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			if got := tt.mode.String(); got != tt.expected {
+				t.Errorf("ViewMode(%d).String() = %q, want %q", tt.mode, got, tt.expected)
+			}
+		})
+	}
+}
