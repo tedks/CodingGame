@@ -1,0 +1,28 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "testutil",
+    srcs = [
+        "compare.go",
+        "runner.go",
+        "screenshot.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/testutil",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+    ],
+)
+
+go_test(
+    name = "testutil_test",
+    srcs = [
+        "compare_test.go",
+        "runner_test.go",
+        "screenshot_test.go",
+    ],
+    embed = [":testutil"],
+    deps = [
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+    ],
+)
