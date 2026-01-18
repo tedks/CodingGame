@@ -10,6 +10,22 @@ CodingGame is a strategy game interface for Claude Code, inspired by Civilizatio
 
 **Implementation**: Go + Ebitengine GUI application. See [ARCHITECTURE.md](ARCHITECTURE.md) for technical details and [DESIGN.md](DESIGN.md) for complete specifications.
 
+## Implementation Status
+
+Run `bd list --all` for current issue state. Phase completion:
+
+| Phase | Name | Status | Epic |
+|-------|------|--------|------|
+| 0 | Foundation | Complete | CodingGame-w93 |
+| 1 | Core Framework | Complete | CodingGame-66a |
+| 2 | Buildings & Units | Complete | CodingGame-bac |
+| 3 | Advisors | Complete | CodingGame-3p5 |
+| 4 | Belts & Debugging | Complete | CodingGame-mrj |
+| 5 | Capability Inventory | In Progress | CodingGame-gqo |
+| 6 | Production Realm | Not Started | CodingGame-2lu |
+| 7 | Multi-Agent | Not Started | CodingGame-0j6 |
+| 8 | Polish | Not Started | CodingGame-4kb |
+
 ## Beads Issue Tracking
 
 This project uses **bd** (beads) for issue tracking. Run `bd ready` to get started.
@@ -245,6 +261,23 @@ bazel build //:codinggame
 bazel build //internal/tile
 ```
 
+### Running the Game
+
+```bash
+# Build and run (from Nix environment)
+bazel run //:codinggame -- /path/to/project
+
+# Or build then run directly
+bazel build //:codinggame
+./bazel-bin/codinggame_/codinggame /path/to/project
+```
+
+**Keyboard controls:**
+- `h/j/k/l` or arrows: Pan map
+- `+/-`: Zoom in/out
+- `Tab`: Toggle directory/dataflow view
+- `Esc`: Exit
+
 ### Running Tests
 
 **CRITICAL: ONLY run tests through Nix + Bazel. NEVER use `go test` directly.**
@@ -321,6 +354,27 @@ While Go modules work, they bypass our hermetic build system:
 - Handle errors explicitly, don't ignore them
 - Keep goroutines and channels simple and obvious
 
+### Package Structure
+
+| Package | Purpose |
+|---------|---------|
+| `internal/game/` | Main game loop, scene management |
+| `internal/mapview/` | Tile grid, fog of war, pan/zoom |
+| `internal/tile/` | File representation, fog states |
+| `internal/claude/` | Tool interception, JSON event parsing |
+| `internal/advisor/` | Subagent pool, insights system |
+| `internal/belt/` | Factorio-style dependency visualization |
+| `internal/building/` | Build target visualization |
+| `internal/unit/` | Test visualization |
+| `internal/input/` | Keyboard handling, vim-style modes |
+| `internal/ui/` | Scenes, menus, prompts |
+| `internal/build/` | Bazel/npm/cargo adapters |
+| `internal/dependency/` | Import extraction (Go) |
+| `internal/connection/` | Dependency graph, circular detection |
+| `internal/debug/` | Debugger integration (delve) |
+| `internal/resources/` | Resource bar, metrics tracking |
+| `internal/testutil/` | Screenshot capture, image comparison |
+
 ### Game Interface Guidelines
 - **Keyboard accessibility**: Prioritize vim-style navigation, no mouse required
 - **Real data only**: Every visual element must represent something real
@@ -345,9 +399,40 @@ Understanding the metaphors helps maintain consistency:
 - **Always run tests with Bazel**: `bazel test //...` (never `go test`)
 - Unit tests for game logic and state management
 - Integration tests for Claude subprocess interaction
-- Manual testing for visual elements and UX flows
 - No fake/mock metrics in tests - use real examples
 - Tests must pass in Nix environment before committing
+
+### Visual Testing
+
+The `internal/testutil` package provides screenshot capture and image comparison:
+
+```go
+import "github.com/tedks/CodingGame/internal/testutil"
+
+// Capture a screenshot during a test
+screenshot, err := testutil.RunAndCapture(game, 5, 1280, 720)
+
+// Save to file for manual inspection
+screenshot.SaveToFile("/tmp/test_screenshot.png")
+
+// Or save to the standard screenshot directory
+dir, _ := testutil.ScreenshotDir()  // /tmp/codinggame-screenshots/
+path, _ := screenshot.SaveWithTimestamp(dir)
+
+// Compare against a reference image
+result, err := testutil.CompareScreenshotToFile(screenshot, "golden/expected.png",
+    testutil.CompareOptions{Tolerance: 5, PercentThreshold: 0.1})
+if !result.Match {
+    testutil.SaveDiff(screenshot.Image(), referenceImg, "diff.png")
+}
+```
+
+**Display requirements**: Tests using Ebitengine check for `DISPLAY` or `WAYLAND_DISPLAY`. In CI, xvfb provides the virtual display.
+
+**Manual visual testing**: Run the game and verify appearance:
+```bash
+bazel run //:codinggame -- /path/to/project
+```
 
 ## Continuous Integration
 
@@ -406,6 +491,26 @@ When reviewing pull requests, check for:
 - [PHILOSOPHY.md](PHILOSOPHY.md) - Core design principles  
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Technical architecture
 - [.beads/README.md](.beads/README.md) - Beads issue tracking guide
+
+## Troubleshooting
+
+### "command not found: bazel"
+You're not in the Nix environment. Run `nix develop` first, or use `direnv allow`.
+
+### Tests skip with "no display available"
+Run with xvfb: `xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...`
+
+### CGO linking errors
+Regenerate `.bazelrc.user`: `./scripts/gen-bazelrc-user.sh`
+
+### Beads database locked
+In web Claude Code, use no-daemon mode: `BEADS_NO_DAEMON=1 bd ready`
+
+### GLFW initialization errors in tests
+Ebitengine can only initialize GLFW once per process. Run integration tests in isolation: `bazel test //internal/testutil:testutil_test`
+
+### Build cache issues
+Clear Bazel cache: `bazel clean --expunge`
 
 ## Questions or Clarifications?
 
