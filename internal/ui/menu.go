@@ -5,8 +5,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/input"
 )
 
 // MenuItem represents a single menu option.
@@ -54,6 +54,9 @@ type Menu struct {
 
 	// Behavior
 	CancelAllowed bool // Whether Escape key goes back/cancels
+
+	// Input source (for testing injection)
+	inputSource input.InputSource
 }
 
 // NewMenu creates a new menu with default styling.
@@ -71,6 +74,17 @@ func NewMenu(title string, items []*MenuItem) *Menu {
 		BackgroundColor: color.RGBA{30, 30, 45, 230},
 		BorderColor:     color.RGBA{80, 80, 120, 255},
 		CancelAllowed:   true,
+		inputSource:     input.DefaultSource,
+	}
+}
+
+// SetInputSource sets the input source for testing.
+// Pass nil to reset to the default Ebitengine source.
+func (m *Menu) SetInputSource(source input.InputSource) {
+	if source == nil {
+		m.inputSource = input.DefaultSource
+	} else {
+		m.inputSource = source
 	}
 }
 
@@ -78,15 +92,15 @@ func NewMenu(title string, items []*MenuItem) *Menu {
 // Returns: (selected item value, cancelled, error)
 func (m *Menu) Update() (selected string, cancelled bool, err error) {
 	// Handle up/down navigation
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) || inpututil.IsKeyJustPressed(ebiten.KeyK) {
+	if m.inputSource.IsKeyJustPressed(ebiten.KeyArrowUp) || m.inputSource.IsKeyJustPressed(ebiten.KeyK) {
 		m.moveSelection(-1)
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) || inpututil.IsKeyJustPressed(ebiten.KeyJ) {
+	if m.inputSource.IsKeyJustPressed(ebiten.KeyArrowDown) || m.inputSource.IsKeyJustPressed(ebiten.KeyJ) {
 		m.moveSelection(1)
 	}
 
 	// Handle selection with Enter or Space
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) || inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+	if m.inputSource.IsKeyJustPressed(ebiten.KeyEnter) || m.inputSource.IsKeyJustPressed(ebiten.KeySpace) {
 		if m.SelectedIndex >= 0 && m.SelectedIndex < len(m.Items) {
 			item := m.Items[m.SelectedIndex]
 			if item.Enabled {
@@ -96,7 +110,7 @@ func (m *Menu) Update() (selected string, cancelled bool, err error) {
 	}
 
 	// Handle cancel with Escape
-	if m.CancelAllowed && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+	if m.CancelAllowed && m.inputSource.IsKeyJustPressed(ebiten.KeyEscape) {
 		return "", true, nil
 	}
 

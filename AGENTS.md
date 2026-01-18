@@ -373,7 +373,8 @@ While Go modules work, they bypass our hermetic build system:
 | `internal/connection/` | Dependency graph, circular detection |
 | `internal/debug/` | Debugger integration (delve) |
 | `internal/resources/` | Resource bar, metrics tracking |
-| `internal/testutil/` | Screenshot capture, image comparison |
+| `internal/testutil/` | Screenshot capture, image comparison, input simulation |
+| `internal/systemtest/` | Exhaustive system tests for all interactions |
 
 ### Game Interface Guidelines
 - **Keyboard accessibility**: Prioritize vim-style navigation, no mouse required
@@ -433,6 +434,57 @@ if !result.Match {
 ```bash
 bazel run //:codinggame -- /path/to/project
 ```
+
+### System Test Requirements
+
+The `internal/systemtest` package provides exhaustive system tests that drive virtual keyboard and mouse input to verify all interactions work end-to-end.
+
+**Mandate**: When adding or modifying interactive features, you MUST:
+1. Use the `InputSource` interface for all input reading (not direct Ebitengine calls)
+2. Add system tests in `internal/systemtest/` covering the new interaction
+3. Use the `Scenario` DSL for declarative test definitions
+
+**Running system tests:**
+
+```bash
+# Headless (CI/SSH)
+xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //internal/systemtest:systemtest_test
+
+# With display
+bazel test //internal/systemtest:systemtest_test
+```
+
+**GLFW Constraint**: All system tests run as subtests of a single `TestSystemTests` entry point because GLFW can only be initialized once per process. To add a new test:
+1. Create a test function: `func testMyFeature(t *testing.T) { ... }`
+2. Register it in `TestSystemTests` in `main_test.go`
+
+**Example test using scenario DSL:**
+
+```go
+func testMyFeature(t *testing.T) {
+    source := testutil.NewTestInputSource()
+    h := testHandler(source)
+
+    // Queue input events
+    source.QueueKeyPress(ebiten.KeyI)
+    source.AdvanceFrame()
+    h.Update()
+
+    // Assert expected state
+    assertMode(t, h, input.ModeInsert)
+}
+```
+
+**Input Abstraction Rule**: All components reading input must:
+- Accept `InputSource` as constructor parameter or via `SetInputSource()` setter
+- Default to `input.DefaultSource` (real Ebitengine)
+- Never call `inpututil.*` or `ebiten.IsKeyPressed()` directly
+
+**Key packages:**
+- `internal/input/source.go` - InputSource interface and EbitenInputSource
+- `internal/testutil/input.go` - TestInputSource for tests
+- `internal/testutil/scenario.go` - Scenario DSL for declarative tests
+- `internal/systemtest/` - Exhaustive system tests (40+ interactions)
 
 ## Continuous Integration
 
