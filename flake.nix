@@ -72,6 +72,11 @@
               export C_INCLUDE_PATH="${pkgs.lib.makeSearchPathOutput "dev" "include" x11Libs}:$C_INCLUDE_PATH"
               export CGO_CFLAGS="-I${pkgs.xorg.libX11.dev}/include -I${pkgs.xorg.xorgproto}/include $CGO_CFLAGS"
               export CGO_LDFLAGS="-L${pkgs.xorg.libX11}/lib $CGO_LDFLAGS"
+
+              # Auto-regenerate .bazelrc.user with correct Nix paths for this machine
+              if [ -f "./scripts/gen-bazelrc-user.sh" ]; then
+                ./scripts/gen-bazelrc-user.sh --quiet
+              fi
             ''}
 
             # Bazel configuration
