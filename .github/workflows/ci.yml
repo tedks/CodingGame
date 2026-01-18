@@ -38,7 +38,18 @@ jobs:
         run: |
           # Install xvfb for headless X11 tests
           sudo apt-get update && sudo apt-get install -y xvfb
+          # Create screenshot directory for test artifacts
+          mkdir -p /tmp/codinggame-screenshots
           nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: /tmp/codinggame-screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Format check
         run: |
