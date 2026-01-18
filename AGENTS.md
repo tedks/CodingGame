@@ -14,6 +14,55 @@ CodingGame is a strategy game interface for Claude Code, inspired by Civilizatio
 
 This project uses **bd** (beads) for issue tracking. Run `bd ready` to get started.
 
+## Git Workflow
+
+**CRITICAL: NEVER push directly to master. Always use branches and pull requests.**
+
+### Branch Requirements
+
+All code changes must go through a branch and pull request:
+
+```bash
+# Create a descriptive branch name
+git checkout -b feature/add-wayland-support
+git checkout -b fix/egl-display-error
+git checkout -b docs/update-agents-md
+
+# Make your changes, commit, and push the branch
+git add .
+git commit -m "Description of changes"
+git push -u origin feature/add-wayland-support
+
+# Create a pull request
+gh pr create --title "Add Wayland support" --body "Description..."
+```
+
+### Branch Naming Conventions
+
+Use prefixes to categorize branches:
+- `feature/` - New features or capabilities
+- `fix/` - Bug fixes
+- `docs/` - Documentation updates
+- `refactor/` - Code refactoring without behavior changes
+- `test/` - Test additions or improvements
+- `chore/` - Maintenance tasks (dependencies, CI, etc.)
+
+### Why Branches?
+
+- **Code review**: PRs allow review before merging
+- **CI validation**: Tests run on PRs before merge
+- **Rollback**: Easy to revert a PR if issues arise
+- **History**: Clear record of what changed and why
+- **Collaboration**: Multiple machines/sessions can work on the same branch
+
+### Exceptions
+
+The only acceptable direct pushes to master are:
+- Emergency hotfixes (document in commit message why PR was skipped)
+- Automated commits from CI/bots (e.g., beads sync)
+
+Even for emergencies, prefer a fast-tracked PR if possible.
+
 ## First-Time Setup
 
 If beads is not yet installed on your machine, run the setup script:
@@ -85,26 +134,35 @@ bd sync               # Sync with git
 
 4. **Update issue status** - Close finished work, update in-progress items
 
-5. **PUSH TO REMOTE** - This is MANDATORY:
+5. **PUSH BRANCH AND CREATE PR** - This is MANDATORY:
    ```bash
-   git pull --rebase
-   bd sync  # If beads is installed
-   git push
-   git status  # MUST show "up to date with origin"
+   # Ensure you're on a feature branch, NOT master
+   git branch  # Should show feature/*, fix/*, docs/*, etc.
+
+   # Push branch to remote
+   git push -u origin $(git branch --show-current)
+
+   # Create pull request
+   gh pr create --title "Description" --body "Details..."
+
+   # Sync beads if installed
+   bd sync
    ```
 
 6. **Clean up** - Clear stashes, prune remote branches
 
-7. **Verify** - All changes committed AND pushed
+7. **Verify** - All changes committed AND pushed, PR created
 
-8. **Hand off** - Provide context for next session
+8. **Hand off** - Provide context for next session (include PR link)
 
 **CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
+- NEVER push directly to master - always use branches and PRs
+- Work is NOT complete until branch is pushed and PR is created
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 - ALWAYS verify Nix/Bazel environment before running quality gates
+- Include the PR URL in your handoff notes
 
 ## Building and Testing
 
