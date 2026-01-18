@@ -107,7 +107,6 @@ func (a *Adapter) Launch(program string, args []string, cwd string) (*debug.Sess
 	// Connect to dlv with retries instead of fixed sleep
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	var conn net.Conn
-	var err error
 	for i := 0; i < 10; i++ {
 		conn, err = net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
@@ -170,7 +169,6 @@ func (a *Adapter) Attach(pid int) (*debug.Session, error) {
 	// Connect to dlv with retries instead of fixed sleep
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	var conn net.Conn
-	var err error
 	for i := 0; i < 10; i++ {
 		conn, err = net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
