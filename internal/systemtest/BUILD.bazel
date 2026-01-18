@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "systemtest_test",
+    srcs = [
+        "focus_test.go",
+        "main_test.go",
+        "menu_test.go",
+        "modes_test.go",
+        "navigation_test.go",
+        "prompt_test.go",
+        "text_input_test.go",
+        "views_test.go",
+    ],
+    deps = [
+        "//internal/input",
+        "//internal/testutil",
+        "//internal/ui",
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+    ],
+)

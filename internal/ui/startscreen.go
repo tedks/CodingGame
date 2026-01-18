@@ -6,8 +6,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/input"
 )
 
 // GameConfig holds the configuration selected during the start screen flow.
@@ -52,6 +52,9 @@ type StartScreen struct {
 
 	// For title animation
 	frameCount int
+
+	// Input source (for testing injection)
+	inputSource input.InputSource
 }
 
 // NewStartScreen creates a new start screen.
@@ -61,6 +64,7 @@ func NewStartScreen(width, height int, onComplete func(config GameConfig)) *Star
 		height:         height,
 		state:          StateMainMenu,
 		onComplete:     onComplete,
+		inputSource:    input.DefaultSource,
 		recentProjects: []string{
 			// These would be loaded from a config file
 		},
@@ -68,6 +72,21 @@ func NewStartScreen(width, height int, onComplete func(config GameConfig)) *Star
 
 	ss.initMenus()
 	return ss
+}
+
+// SetInputSource sets the input source for testing.
+// Pass nil to reset to the default Ebitengine source.
+func (ss *StartScreen) SetInputSource(source input.InputSource) {
+	if source == nil {
+		ss.inputSource = input.DefaultSource
+	} else {
+		ss.inputSource = source
+	}
+	// Also set on all menus
+	ss.mainMenu.SetInputSource(source)
+	ss.harnessMenu.SetInputSource(source)
+	ss.modelMenu.SetInputSource(source)
+	ss.projectMenu.SetInputSource(source)
 }
 
 func (ss *StartScreen) initMenus() {
@@ -225,16 +244,16 @@ func (ss *StartScreen) updateProjectSelect() (Scene, error) {
 
 func (ss *StartScreen) handleProjectInput() (Scene, error) {
 	// Handle text input character by character
-	chars := ebiten.AppendInputChars(nil)
+	chars := ss.inputSource.AppendInputChars(nil)
 	ss.projectInput += string(chars)
 
 	// Handle backspace
-	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) && len(ss.projectInput) > 0 {
+	if ss.inputSource.IsKeyJustPressed(ebiten.KeyBackspace) && len(ss.projectInput) > 0 {
 		ss.projectInput = ss.projectInput[:len(ss.projectInput)-1]
 	}
 
 	// Handle Enter to confirm
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+	if ss.inputSource.IsKeyJustPressed(ebiten.KeyEnter) {
 		path := strings.TrimSpace(ss.projectInput)
 		if path != "" {
 			ss.config.ProjectPath = path
@@ -244,7 +263,7 @@ func (ss *StartScreen) handleProjectInput() (Scene, error) {
 	}
 
 	// Handle Escape to cancel
-	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+	if ss.inputSource.IsKeyJustPressed(ebiten.KeyEscape) {
 		ss.projectInputMode = false
 	}
 

@@ -18,6 +18,7 @@ import (
 	"github.com/tedks/CodingGame/internal/advisor"
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/dependency"
+	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/resources"
 )
@@ -45,8 +46,9 @@ type Game struct {
 	advisorPool *advisor.Pool
 
 	// Input state
-	lastMouseX int
-	lastMouseY int
+	lastMouseX  int
+	lastMouseY  int
+	inputSource input.InputSource
 }
 
 // New creates a new game instance
@@ -87,6 +89,7 @@ func New(projectPath string, width, height int) (*Game, error) {
 		resources:   resourceTracker,
 		interceptor: interceptor,
 		advisorPool: advisorPool,
+		inputSource: input.DefaultSource,
 	}
 
 	// Register event handlers for Claude tool interception
@@ -100,27 +103,37 @@ func New(projectPath string, width, height int) (*Game, error) {
 	return g, nil
 }
 
+// SetInputSource sets the input source for testing.
+// Pass nil to reset to the default Ebitengine source.
+func (g *Game) SetInputSource(source input.InputSource) {
+	if source == nil {
+		g.inputSource = input.DefaultSource
+	} else {
+		g.inputSource = source
+	}
+}
+
 // Update updates the game state (called 60 times per second)
 func (g *Game) Update() error {
 	// Handle keyboard input for navigation
-	if ebiten.IsKeyPressed(ebiten.KeyArrowLeft) || ebiten.IsKeyPressed(ebiten.KeyH) {
+	if g.inputSource.IsKeyPressed(ebiten.KeyArrowLeft) || g.inputSource.IsKeyPressed(ebiten.KeyH) {
 		g.mapView.Pan(-PanSpeed, 0)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowRight) || ebiten.IsKeyPressed(ebiten.KeyL) {
+	if g.inputSource.IsKeyPressed(ebiten.KeyArrowRight) || g.inputSource.IsKeyPressed(ebiten.KeyL) {
 		g.mapView.Pan(PanSpeed, 0)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowUp) || ebiten.IsKeyPressed(ebiten.KeyK) {
+	if g.inputSource.IsKeyPressed(ebiten.KeyArrowUp) || g.inputSource.IsKeyPressed(ebiten.KeyK) {
 		g.mapView.Pan(0, -PanSpeed)
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyArrowDown) || ebiten.IsKeyPressed(ebiten.KeyJ) {
+	if g.inputSource.IsKeyPressed(ebiten.KeyArrowDown) || g.inputSource.IsKeyPressed(ebiten.KeyJ) {
 		g.mapView.Pan(0, PanSpeed)
 	}
 
 	// Handle zoom with +/- or =/- keys
-	if ebiten.IsKeyPressed(ebiten.KeyEqual) || ebiten.IsKeyPressed(ebiten.KeyKPAdd) {
+	if g.inputSource.IsKeyPressed(ebiten.KeyEqual) || g.inputSource.IsKeyPressed(ebiten.KeyKPAdd) {
 		g.mapView.ZoomIn()
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyMinus) || ebiten.IsKeyPressed(ebiten.KeyKPSubtract) {
+	if g.inputSource.IsKeyPressed(ebiten.KeyMinus) || g.inputSource.IsKeyPressed(ebiten.KeyKPSubtract) {
 		g.mapView.ZoomOut()
 	}
 

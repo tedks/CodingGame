@@ -6,6 +6,7 @@ go_library(
         "bindings.go",
         "handler.go",
         "mode.go",
+        "source.go",
     ],
     importpath = "github.com/tedks/CodingGame/internal/input",
     visibility = ["//:__subpackages__"],
