@@ -113,7 +113,9 @@ func (r *Renderer) Draw(
 			continue
 		}
 
-		// Skip self-references
+		// Skip self-references for now
+		// TODO: Future enhancement - render self-references as small loops or circular
+		// arrows attached to a single tile, showing internal dependencies within a package
 		if conn.IsSelfReference() {
 			continue
 		}
