@@ -37,6 +37,11 @@ bazel build //...
 
 # Run the game
 bazel run //:codinggame
+
+# Or build a standalone binary
+bazel build //:codinggame
+cp bazel-bin/codinggame_/codinggame ./codinggame
+./codinggame
 ```
 
 **Already have Nix?** Just `cd CodingGame && direnv allow` or `nix develop`
