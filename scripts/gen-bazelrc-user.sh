@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate .bazelrc.user with Nix store paths for X11 development
+# Generate .bazelrc.user with Nix store paths for graphics development (X11, Wayland, EGL)
 # This script must be run from within the Nix environment (nix develop)
 #
 # Usage: ./scripts/gen-bazelrc-user.sh [--quiet]
@@ -33,7 +33,7 @@ fi
 # Generate content to a temporary variable first
 generate_content() {
     cat << 'EOF'
-# Auto-generated Nix X11 paths for Bazel CGO compilation
+# Auto-generated Nix graphics paths for Bazel CGO compilation (X11, Wayland, EGL)
 # These paths are machine-specific and should not be committed
 # Regenerate with: ./scripts/gen-bazelrc-user.sh
 # Or enter nix develop (auto-regenerates on entry)
@@ -55,7 +55,7 @@ EOF
 
     # Also add pkg-config paths as fallback (may add some duplicates, but that's OK)
     if command -v pkg-config >/dev/null 2>&1; then
-        PKG_CONFIG_LIBS=(x11 xext xfixes xrandr xrender xcursor xinerama xi xxf86vm gl alsa)
+        PKG_CONFIG_LIBS=(x11 xext xfixes xrandr xrender xcursor xinerama xi xxf86vm gl egl wayland-client xkbcommon alsa)
         declare -A seen_includes
 
         for lib in "${PKG_CONFIG_LIBS[@]}"; do
@@ -79,7 +79,7 @@ EOF
 
     # Use pkg-config for library paths (more reliable than scanning)
     if command -v pkg-config >/dev/null 2>&1; then
-        PKG_CONFIG_LIBS=(x11 xext xfixes xrandr xrender xcursor xinerama xi xxf86vm gl alsa)
+        PKG_CONFIG_LIBS=(x11 xext xfixes xrandr xrender xcursor xinerama xi xxf86vm gl egl wayland-client xkbcommon alsa)
         declare -A seen_libs
 
         for lib in "${PKG_CONFIG_LIBS[@]}"; do

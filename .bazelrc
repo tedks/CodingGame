@@ -23,9 +23,19 @@ build:macos --linkopt=-fPIC
 test --test_output=errors
 test --test_summary=detailed
 
-# Pass DISPLAY and XAUTHORITY for X11 tests (requires xvfb-run for headless)
+# Pass display environment variables for X11 and Wayland
 test --test_env=DISPLAY
 test --test_env=XAUTHORITY
+test --test_env=WAYLAND_DISPLAY
+test --test_env=XDG_RUNTIME_DIR
+run --test_env=DISPLAY
+run --test_env=XAUTHORITY
+run --test_env=WAYLAND_DISPLAY
+run --test_env=XDG_RUNTIME_DIR
+
+# Pass LD_LIBRARY_PATH for runtime graphics library access (X11, Wayland, EGL)
+run --test_env=LD_LIBRARY_PATH
+test --test_env=LD_LIBRARY_PATH
 
 # Performance
 build --jobs=auto

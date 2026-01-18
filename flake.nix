@@ -11,8 +11,10 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        # X11 libraries needed for Ebitengine on Linux
-        x11Libs = with pkgs; [
+        # Graphics libraries needed for Ebitengine on Linux
+        # Includes X11, Wayland, and EGL/OpenGL support
+        graphicsLibs = with pkgs; [
+          # X11
           xorg.libX11
           xorg.libXext
           xorg.libXfixes
@@ -22,7 +24,18 @@
           xorg.libXinerama
           xorg.libXi
           xorg.libXxf86vm
-          libGL
+
+          # OpenGL/EGL
+          libGL          # OpenGL
+          libglvnd       # GL Vendor Neutral Dispatch (provides libEGL, libGLESv2)
+          mesa           # Mesa drivers
+
+          # Wayland
+          wayland
+          wayland-protocols
+          libxkbcommon   # Keyboard handling for Wayland
+
+          # Audio
           alsa-lib
         ];
 
@@ -33,7 +46,7 @@
           pkgs.buildifier
           pkgs.buildozer
           pkgs.pkg-config
-        ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux x11Libs;
+        ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux graphicsLibs;
 
         # Development tools
         nativeBuildInputs = with pkgs; [
@@ -65,11 +78,11 @@
             echo "  Bazel:     $(bazel version | head -1)"
             echo ""
 
-            # Set up environment for X11 on Linux
+            # Set up environment for graphics libraries on Linux
             ${pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath x11Libs}:$LD_LIBRARY_PATH"
-              export LIBRARY_PATH="${pkgs.lib.makeLibraryPath x11Libs}:$LIBRARY_PATH"
-              export C_INCLUDE_PATH="${pkgs.lib.makeSearchPathOutput "dev" "include" x11Libs}:$C_INCLUDE_PATH"
+              export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath graphicsLibs}:$LD_LIBRARY_PATH"
+              export LIBRARY_PATH="${pkgs.lib.makeLibraryPath graphicsLibs}:$LIBRARY_PATH"
+              export C_INCLUDE_PATH="${pkgs.lib.makeSearchPathOutput "dev" "include" graphicsLibs}:$C_INCLUDE_PATH"
               export CGO_CFLAGS="-I${pkgs.xorg.libX11.dev}/include -I${pkgs.xorg.xorgproto}/include $CGO_CFLAGS"
               export CGO_LDFLAGS="-L${pkgs.xorg.libX11}/lib $CGO_LDFLAGS"
 
@@ -95,7 +108,7 @@
 
           vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Will be updated after first build
 
-          buildInputs = x11Libs;
+          buildInputs = graphicsLibs;
           nativeBuildInputs = [ pkgs.pkg-config ];
 
           meta = with pkgs.lib; {
