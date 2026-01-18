@@ -291,6 +291,45 @@ Understanding the metaphors helps maintain consistency:
 - No fake/mock metrics in tests - use real examples
 - Tests must pass in Nix environment before committing
 
+## Continuous Integration
+
+GitHub Actions runs CI automatically on PRs and pushes to master.
+
+### CI Workflow (`.github/workflows/ci.yml`)
+
+The CI pipeline:
+1. Installs Nix with flakes support
+2. Caches Nix store for faster builds
+3. Generates `.bazelrc.user` with X11 paths
+4. Runs `bazel build //...`
+5. Runs `bazel test //...` with xvfb (headless X11)
+6. Checks code formatting with `go fmt`
+
+### Claude Code Workflow (`.github/workflows/claude.yml`)
+
+When `@claude` is mentioned in issues/PRs, the Claude Code action runs with:
+- Nix environment pre-configured
+- xvfb installed for X11 tests
+- `.bazelrc.user` generated
+
+**Running tests in Claude workflow:**
+```bash
+xvfb-run -a -s "-screen 0 1024x768x24 -ac" nix develop --command bazel test //...
+```
+
+### Checking CI Status
+
+```bash
+# List recent workflow runs
+gh run list --limit 5
+
+# View specific run
+gh run view <run-id>
+
+# Watch a running workflow
+gh run watch
+```
+
 ## PR Review Guidelines
 
 When reviewing pull requests, check for:
