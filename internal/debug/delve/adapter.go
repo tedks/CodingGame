@@ -115,8 +115,10 @@ func (a *Adapter) Launch(program string, args []string, cwd string) (*debug.Sess
 		time.Sleep(100 * time.Millisecond)
 	}
 	if err != nil {
-		cmd.Process.Kill()
-		cmd.Wait() // Prevent zombie process
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			cmd.Wait() // Prevent zombie process
+		}
 		return nil, fmt.Errorf("failed to connect to dlv after retries: %w", err)
 	}
 
@@ -177,8 +179,10 @@ func (a *Adapter) Attach(pid int) (*debug.Session, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if err != nil {
-		cmd.Process.Kill()
-		cmd.Wait() // Prevent zombie process
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+			cmd.Wait() // Prevent zombie process
+		}
 		return nil, fmt.Errorf("failed to connect to dlv after retries: %w", err)
 	}
 

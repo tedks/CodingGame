@@ -11,10 +11,10 @@
 package dependency
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +102,7 @@ func (e *Extractor) ExtractGo() (*connection.Graph, error) {
 		// Parse the file
 		if err := e.extractFileImports(path, graph); err != nil {
 			// Log but don't fail - allow partial graphs
-			fmt.Printf("Warning: failed to parse %s: %v\n", path, err)
+			log.Printf("Warning: failed to parse %s: %v", path, err)
 		}
 		return nil
 	})
