@@ -113,9 +113,7 @@ func (r *Renderer) Draw(
 			continue
 		}
 
-		// Skip self-references for now
-		// TODO: Future enhancement - render self-references as small loops or circular
-		// arrows attached to a single tile, showing internal dependencies within a package
+		// Skip self-references (see CodingGame-dmv for future rendering)
 		if conn.IsSelfReference() {
 			continue
 		}
