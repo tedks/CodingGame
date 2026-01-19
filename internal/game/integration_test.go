@@ -3,6 +3,7 @@ package game
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -58,9 +59,22 @@ func TestIntegrationScreenshotCapture(t *testing.T) {
 		t.Fatalf("failed to capture initial state: %v", err)
 	}
 
+	// Verify screenshot dimensions
+	if screenshot1.Width() != 800 || screenshot1.Height() != 600 {
+		t.Errorf("unexpected screenshot size: %dx%d, want 800x600",
+			screenshot1.Width(), screenshot1.Height())
+	}
+
 	path1 := capturer.Capture(screenshot1, "initial")
 	if path1 == "" {
 		t.Error("failed to save initial screenshot")
+	}
+
+	// Verify screenshot file exists and is non-empty
+	if info, err := os.Stat(path1); err != nil {
+		t.Errorf("screenshot file not found: %v", err)
+	} else if info.Size() == 0 {
+		t.Error("screenshot file is empty")
 	}
 
 	// Log for Claude to find
@@ -163,14 +177,5 @@ func isGLFWError(err error) bool {
 		return false
 	}
 	errStr := err.Error()
-	return containsString(errStr, "glfw") || containsString(errStr, "GLFW")
-}
-
-func containsString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(errStr, "glfw") || strings.Contains(errStr, "GLFW")
 }
