@@ -35,6 +35,9 @@ jobs:
           nix develop --command bazel build //...
 
       - name: Test
+        env:
+          CODINGGAME_SCREENSHOT_DIR: /tmp/codinggame-screenshots
+          CODINGGAME_SAVE_SCREENSHOTS: "1"
         run: |
           # Install xvfb for headless X11 tests
           sudo apt-get update && sudo apt-get install -y xvfb
