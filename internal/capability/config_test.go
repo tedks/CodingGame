@@ -133,3 +133,143 @@ func TestInferMCPDomain(t *testing.T) {
 		}
 	}
 }
+
+// Error path tests
+
+func TestMCPDiscovererMalformedJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a malformed JSON file
+	malformedConfig := `{ this is not valid json `
+	configPath := filepath.Join(tmpDir, ".mcp.json")
+	if err := os.WriteFile(configPath, []byte(malformedConfig), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	d := NewMCPDiscoverer(tmpDir)
+	caps, err := d.Discover()
+
+	// Should not return error (graceful degradation), but also no capabilities from malformed file
+	if err != nil {
+		t.Fatalf("Discover() should not return error for malformed JSON: %v", err)
+	}
+
+	// Check that no MCP capabilities were found from the malformed file
+	for _, cap := range caps {
+		if cap.Type == TypeMCP && cap.Source == configPath {
+			t.Error("should not have found MCP capabilities from malformed JSON")
+		}
+	}
+}
+
+func TestMCPDiscovererEmptyJSON(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create an empty JSON file
+	emptyConfig := `{}`
+	configPath := filepath.Join(tmpDir, ".mcp.json")
+	if err := os.WriteFile(configPath, []byte(emptyConfig), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	d := NewMCPDiscoverer(tmpDir)
+	caps, err := d.Discover()
+
+	if err != nil {
+		t.Fatalf("Discover() should not return error for empty JSON: %v", err)
+	}
+
+	// Check that no MCP capabilities were found
+	for _, cap := range caps {
+		if cap.Type == TypeMCP && cap.Source == configPath {
+			t.Error("should not have found MCP capabilities from empty JSON")
+		}
+	}
+}
+
+func TestMCPDiscovererEmptyMCPServers(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create JSON with empty mcpServers
+	config := `{"mcpServers": {}}`
+	configPath := filepath.Join(tmpDir, ".mcp.json")
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	d := NewMCPDiscoverer(tmpDir)
+	caps, err := d.Discover()
+
+	if err != nil {
+		t.Fatalf("Discover() should not return error for empty mcpServers: %v", err)
+	}
+
+	// Check that no MCP capabilities were found
+	for _, cap := range caps {
+		if cap.Type == TypeMCP && cap.Source == configPath {
+			t.Error("should not have found MCP capabilities from empty mcpServers")
+		}
+	}
+}
+
+func TestMCPDiscovererMissingCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create config with missing command field
+	config := `{
+		"mcpServers": {
+			"test-server": {
+				"args": ["--test"]
+			}
+		}
+	}`
+	configPath := filepath.Join(tmpDir, ".mcp.json")
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	d := NewMCPDiscoverer(tmpDir)
+	caps, err := d.Discover()
+
+	// Should succeed but the capability will have empty command in description
+	if err != nil {
+		t.Fatalf("Discover() should not return error: %v", err)
+	}
+
+	// Verify the capability was created (even with empty command)
+	found := false
+	for _, cap := range caps {
+		if cap.Name == "test-server" {
+			found = true
+			// Command is empty, so description should just be empty or have args
+			break
+		}
+	}
+	if !found {
+		t.Error("expected test-server capability to be created even with missing command")
+	}
+}
+
+func TestMCPDiscovererUnreadableFile(t *testing.T) {
+	// Skip on platforms where we can't control permissions easily
+	tmpDir := t.TempDir()
+
+	// Create a file that's not readable
+	configPath := filepath.Join(tmpDir, ".mcp.json")
+	if err := os.WriteFile(configPath, []byte(`{}`), 0000); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	d := NewMCPDiscoverer(tmpDir)
+	caps, err := d.Discover()
+
+	// Should not error (graceful degradation)
+	if err != nil {
+		t.Fatalf("Discover() should not return error for unreadable file: %v", err)
+	}
+
+	// Restore permissions for cleanup
+	os.Chmod(configPath, 0644)
+
+	_ = caps
+}

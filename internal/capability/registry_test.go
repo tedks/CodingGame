@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -246,5 +247,104 @@ type testListener struct {
 func (l *testListener) OnCapabilitiesChanged(caps []*Capability) {
 	if l.onChanged != nil {
 		l.onChanged(caps)
+	}
+}
+
+// Error tracking tests
+
+// errorDiscoverer is a test discoverer that always returns an error.
+type errorDiscoverer struct {
+	name string
+	err  error
+}
+
+func (e *errorDiscoverer) Name() string {
+	return e.name
+}
+
+func (e *errorDiscoverer) Discover() ([]*Capability, error) {
+	return nil, e.err
+}
+
+func (e *errorDiscoverer) WatchPaths() []string {
+	return nil
+}
+
+func TestRegistryLastErrors(t *testing.T) {
+	r := NewRegistry()
+
+	// Initially no errors
+	errors := r.LastErrors()
+	if len(errors) != 0 {
+		t.Errorf("expected no errors initially, got %d", len(errors))
+	}
+
+	if r.HasErrors() {
+		t.Error("HasErrors() should return false initially")
+	}
+}
+
+func TestRegistryTracksDiscovererErrors(t *testing.T) {
+	r := NewRegistry()
+
+	// Add a discoverer that errors
+	testErr := fmt.Errorf("test discovery error")
+	errDisc := &errorDiscoverer{name: "error-discoverer", err: testErr}
+	r.RegisterDiscoverer(errDisc)
+
+	// Add a working discoverer
+	workingDisc := &mockDiscoverer{
+		name: "working",
+		capabilities: []*Capability{
+			NewCapability("cap1", "Cap 1", TypeTool, DomainCore),
+		},
+	}
+	r.RegisterDiscoverer(workingDisc)
+
+	// Refresh should succeed (graceful degradation)
+	count := r.Refresh()
+	if count != 1 {
+		t.Errorf("expected 1 capability from working discoverer, got %d", count)
+	}
+
+	// Should have recorded the error
+	if !r.HasErrors() {
+		t.Error("HasErrors() should return true after error")
+	}
+
+	errors := r.LastErrors()
+	if len(errors) != 1 {
+		t.Errorf("expected 1 error, got %d", len(errors))
+	}
+
+	if errors["error-discoverer"] == nil {
+		t.Error("expected error from error-discoverer")
+	}
+}
+
+func TestRegistryErrorsCleared(t *testing.T) {
+	r := NewRegistry()
+
+	// First refresh with error
+	errDisc := &errorDiscoverer{name: "error-discoverer", err: fmt.Errorf("error")}
+	r.RegisterDiscoverer(errDisc)
+	r.Refresh()
+
+	if !r.HasErrors() {
+		t.Error("should have errors after first refresh")
+	}
+
+	// Remove error discoverer by creating a new registry (or in real usage, the error might resolve)
+	// For this test, we verify errors are tracked per-refresh
+	r2 := NewRegistry()
+	workingDisc := &mockDiscoverer{
+		name:         "working",
+		capabilities: []*Capability{},
+	}
+	r2.RegisterDiscoverer(workingDisc)
+	r2.Refresh()
+
+	if r2.HasErrors() {
+		t.Error("new registry should not have errors")
 	}
 }

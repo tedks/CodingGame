@@ -30,6 +30,9 @@ func NewWatcher(registry *Registry) *Watcher {
 }
 
 // SetPollInterval configures the polling interval.
+// Note: Changes to the interval only take effect on the next Start() call.
+// Calling SetPollInterval while the watcher is running will not affect the current
+// polling rate; you must Stop() and Start() again for the new interval to apply.
 func (w *Watcher) SetPollInterval(interval time.Duration) {
 	w.mu.Lock()
 	defer w.mu.Unlock()

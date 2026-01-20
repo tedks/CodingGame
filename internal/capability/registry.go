@@ -8,6 +8,8 @@ import (
 // RegistryListener receives notifications about registry changes.
 type RegistryListener interface {
 	// OnCapabilitiesChanged is called when capabilities are added, removed, or updated.
+	// The provided slice is read-only and must not be modified by listeners.
+	// Listeners are called asynchronously in goroutines.
 	OnCapabilitiesChanged(capabilities []*Capability)
 }
 
@@ -18,6 +20,7 @@ type Registry struct {
 	capabilities map[string]*Capability
 	discoverers  []Discoverer
 	listeners    []RegistryListener
+	lastErrors   map[string]error // Errors from last Refresh(), keyed by discoverer name
 }
 
 // NewRegistry creates a new capability registry.
@@ -55,6 +58,7 @@ func (r *Registry) RemoveListener(l RegistryListener) {
 
 // Refresh runs all discoverers and updates the capability list.
 // Returns the number of capabilities discovered.
+// Errors from individual discoverers are stored and can be retrieved with LastErrors().
 func (r *Registry) Refresh() int {
 	r.mu.Lock()
 	discoverers := make([]Discoverer, len(r.discoverers))
@@ -63,10 +67,12 @@ func (r *Registry) Refresh() int {
 
 	// Collect capabilities from all discoverers
 	newCaps := make(map[string]*Capability)
+	errors := make(map[string]error)
 	for _, d := range discoverers {
 		caps, err := d.Discover()
 		if err != nil {
-			// Log error but continue with other discoverers
+			// Track error but continue with other discoverers
+			errors[d.Name()] = err
 			continue
 		}
 		for _, cap := range caps {
@@ -77,6 +83,7 @@ func (r *Registry) Refresh() int {
 	// Update registry
 	r.mu.Lock()
 	r.capabilities = newCaps
+	r.lastErrors = errors
 	listeners := make([]RegistryListener, len(r.listeners))
 	copy(listeners, r.listeners)
 	r.mu.Unlock()
@@ -88,6 +95,31 @@ func (r *Registry) Refresh() int {
 	}
 
 	return len(newCaps)
+}
+
+// LastErrors returns any errors from the most recent Refresh() call.
+// The map is keyed by discoverer name. An empty map means no errors occurred.
+func (r *Registry) LastErrors() map[string]error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.lastErrors == nil {
+		return make(map[string]error)
+	}
+
+	// Return a copy to avoid concurrent access issues
+	errs := make(map[string]error, len(r.lastErrors))
+	for k, v := range r.lastErrors {
+		errs[k] = v
+	}
+	return errs
+}
+
+// HasErrors returns true if the most recent Refresh() had any discoverer errors.
+func (r *Registry) HasErrors() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.lastErrors) > 0
 }
 
 // GetAll returns all capabilities sorted by domain then name.
