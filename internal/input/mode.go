@@ -96,13 +96,14 @@ func PrevFocus(current FocusArea) FocusArea {
 	return FocusMap
 }
 
-// ViewNumber represents the numbered view (1-5) for quick switching.
+// ViewNumber represents the numbered view (1-6) for quick switching.
 type ViewNumber int
 
 const (
-	ViewMap      ViewNumber = 1 // Directory/Dataflow map
-	ViewBuilding ViewNumber = 2 // Buildings (build targets)
-	ViewUnit     ViewNumber = 3 // Units (tests)
-	ViewTech     ViewNumber = 4 // Tech tree (capabilities)
-	ViewMission  ViewNumber = 5 // Missions/objectives
+	ViewMap        ViewNumber = 1 // Directory/Dataflow map
+	ViewBuilding   ViewNumber = 2 // Buildings (build targets)
+	ViewUnit       ViewNumber = 3 // Units (tests)
+	ViewTech       ViewNumber = 4 // Tech tree (capabilities)
+	ViewMission    ViewNumber = 5 // Missions/objectives
+	ViewProduction ViewNumber = 6 // Production realm (deployed services)
 )
