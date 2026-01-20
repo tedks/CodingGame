@@ -41,8 +41,7 @@ jobs:
         run: |
           # Install xvfb for headless X11 tests
           sudo apt-get update && sudo apt-get install -y xvfb
-          # Create screenshot directory for test artifacts
-          mkdir -p /tmp/codinggame-screenshots
+          # Screenshot directory is created by test code via NewCapturer/ScreenshotDir
           nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
 
       - name: Upload screenshots

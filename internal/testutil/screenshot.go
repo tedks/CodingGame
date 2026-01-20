@@ -138,12 +138,18 @@ type Capturer struct {
 }
 
 // NewCapturer creates a capturer for the given test.
-// Screenshots save to CODINGGAME_SCREENSHOT_DIR or current directory.
+// Screenshots save to CODINGGAME_SCREENSHOT_DIR or the default screenshot
+// directory (/tmp/codinggame-screenshots/).
 func NewCapturer(t *testing.T) *Capturer {
 	t.Helper()
 	dir := os.Getenv("CODINGGAME_SCREENSHOT_DIR")
 	if dir == "" {
-		dir = "."
+		var err error
+		dir, err = ScreenshotDir()
+		if err != nil {
+			t.Logf("Warning: failed to get screenshot dir: %v, using current dir", err)
+			dir = "."
+		}
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Logf("Warning: failed to create screenshot dir %s: %v", dir, err)

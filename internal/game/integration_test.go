@@ -1,3 +1,19 @@
+// Integration tests for the game engine's screenshot capture functionality.
+//
+// These tests verify end-to-end screenshot capture with real game instances.
+// They require a display (DISPLAY or WAYLAND_DISPLAY) and are skipped in
+// -short mode or headless environments without xvfb.
+//
+// IMPORTANT: Due to GLFW initialization constraints, all integration tests
+// run as subtests of TestIntegration. GLFW can only be initialized once per
+// process, so we cannot have multiple top-level tests that call RunAndCapture.
+// See CLAUDE.md for details on this constraint.
+//
+// Usage:
+//
+//	CODINGGAME_SAVE_SCREENSHOTS=1 xvfb-run -a bazel test //internal/game:game_test --test_filter=Integration
+//
+// Then ask Claude to read the screenshot files listed in the test output.
 package game
 
 import (
@@ -6,19 +22,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/tedks/CodingGame/internal/testutil"
 )
 
-// TestIntegrationScreenshotCapture demonstrates the iterative visual debugging workflow.
-// This test captures screenshots at various game states for Claude to analyze.
-//
-// Usage:
-//
-//	CODINGGAME_SAVE_SCREENSHOTS=1 xvfb-run -a bazel test //internal/game:game_test --test_filter=Integration
-//
-// Then ask Claude to read the screenshot files listed in the test output.
-func TestIntegrationScreenshotCapture(t *testing.T) {
+// TestIntegration is the single entry point for all integration tests.
+// This structure is required because GLFW can only be initialized once per process.
+func TestIntegration(t *testing.T) {
 	// Skip if no display available
 	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
 		t.Skip("Skipping integration test: no display available")
@@ -46,89 +55,98 @@ func TestIntegrationScreenshotCapture(t *testing.T) {
 	}
 	defer game.Close()
 
-	// Create capturer for this test
-	capturer := testutil.NewCapturer(t)
-
-	// Capture initial state
-	screenshot1, err := testutil.RunAndCapture(game, 5, 800, 600)
+	// Capture screenshot once (GLFW constraint - can only run once per process)
+	screenshot, err := testutil.RunAndCapture(game, 5, 800, 600)
 	if err != nil {
-		// Check if it's a GLFW error - skip gracefully
 		if isGLFWError(err) {
 			t.Skipf("Skipping: GLFW initialization issue: %v", err)
 		}
-		t.Fatalf("failed to capture initial state: %v", err)
+		t.Fatalf("failed to capture screenshot: %v", err)
 	}
 
+	// Run subtests with the captured screenshot
+	t.Run("ScreenshotCapture", func(t *testing.T) {
+		testScreenshotCapture(t, screenshot)
+	})
+
+	t.Run("ScreenshotContent", func(t *testing.T) {
+		testScreenshotContent(t, screenshot)
+	})
+
+	t.Run("ConditionalSave", func(t *testing.T) {
+		testConditionalSave(t, screenshot)
+	})
+}
+
+// testScreenshotCapture verifies basic screenshot capture and file saving.
+func testScreenshotCapture(t *testing.T, screenshot *testutil.Screenshot) {
 	// Verify screenshot dimensions
-	if screenshot1.Width() != 800 || screenshot1.Height() != 600 {
+	if screenshot.Width() != 800 || screenshot.Height() != 600 {
 		t.Errorf("unexpected screenshot size: %dx%d, want 800x600",
-			screenshot1.Width(), screenshot1.Height())
+			screenshot.Width(), screenshot.Height())
 	}
 
-	path1 := capturer.Capture(screenshot1, "initial")
-	if path1 == "" {
-		t.Error("failed to save initial screenshot")
+	// Create capturer and save screenshot
+	capturer := testutil.NewCapturer(t)
+	path := capturer.Capture(screenshot, "initial")
+	if path == "" {
+		t.Fatal("failed to save initial screenshot")
 	}
 
 	// Verify screenshot file exists and is non-empty
-	if info, err := os.Stat(path1); err != nil {
-		t.Errorf("screenshot file not found: %v", err)
-	} else if info.Size() == 0 {
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("screenshot file not found: %v", err)
+	}
+	if info.Size() == 0 {
 		t.Error("screenshot file is empty")
 	}
 
 	// Log for Claude to find
-	t.Logf("Initial game render: %s", path1)
+	t.Logf("Initial game render: %s", path)
 	t.Log("Claude can read this screenshot to analyze the initial game state")
 }
 
-// TestIntegrationSaveOnFailure demonstrates the SaveOnFailure pattern.
-// Screenshots are only saved when the test fails or CODINGGAME_SAVE_SCREENSHOTS=1.
-func TestIntegrationSaveOnFailure(t *testing.T) {
-	// Skip if no display available
-	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-		t.Skip("Skipping integration test: no display available")
+// testScreenshotContent verifies that the screenshot contains actual rendered content.
+func testScreenshotContent(t *testing.T, screenshot *testutil.Screenshot) {
+	if screenshot.Width() == 0 || screenshot.Height() == 0 {
+		t.Fatal("screenshot has zero dimensions")
 	}
 
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	// Check that screenshot has some non-black pixels (game should render something)
+	bounds := screenshot.Image().Bounds()
+	hasContent := false
+
+	// Sample every 10th pixel for performance
+	for y := bounds.Min.Y; y < bounds.Max.Y && !hasContent; y += 10 {
+		for x := bounds.Min.X; x < bounds.Max.X && !hasContent; x += 10 {
+			r, g, b, a := screenshot.Image().At(x, y).RGBA()
+			// Check for any non-transparent, non-black pixel
+			if a > 0 && (r > 0 || g > 0 || b > 0) {
+				hasContent = true
+			}
+		}
 	}
 
-	// Create a temporary directory
-	tmpDir, err := os.MkdirTemp("", "codinggame-onfailure-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
+	if !hasContent {
+		t.Error("screenshot appears blank - game may not be rendering correctly")
 	}
-	defer os.RemoveAll(tmpDir)
+}
 
-	// Create test files
-	createTestFiles(t, tmpDir)
-
-	// Create a simple test game (avoids GLFW issues with multiple tests)
-	simpleGame := testutil.NewSimpleTestGame(800, 600, func(screen *ebiten.Image) {
-		// Draw a simple colored background
-		screen.Clear()
-	})
-
+// testConditionalSave verifies the SaveOnFailure behavior.
+// SaveOnFailure only saves screenshots when the test is failing or
+// CODINGGAME_SAVE_SCREENSHOTS=1 is set.
+func testConditionalSave(t *testing.T, screenshot *testutil.Screenshot) {
 	capturer := testutil.NewCapturer(t)
 
-	// This screenshot is only saved on failure or when CODINGGAME_SAVE_SCREENSHOTS=1
-	screenshot, err := testutil.RunAndCapture(simpleGame, 3, 800, 600)
-	if err != nil {
-		if isGLFWError(err) {
-			t.Skipf("Skipping: GLFW initialization issue: %v", err)
-		}
-		t.Fatalf("failed to capture: %v", err)
-	}
+	// SaveOnFailure should not save when test is passing and env var is not set
+	// (We can't easily test the failure case without actually failing)
+	capturer.SaveOnFailure(screenshot, "conditional_demo")
 
-	// This will only save if the test is failing
-	capturer.SaveOnFailure(screenshot, "on_failure_demo")
-
-	// Check if screenshot was saved based on env var
 	if os.Getenv("CODINGGAME_SAVE_SCREENSHOTS") == "1" {
-		t.Log("CODINGGAME_SAVE_SCREENSHOTS=1, screenshot was saved")
+		t.Log("CODINGGAME_SAVE_SCREENSHOTS=1: screenshot was saved via SaveOnFailure")
 	} else {
-		t.Log("Screenshot not saved (test passing and CODINGGAME_SAVE_SCREENSHOTS not set)")
+		t.Log("CODINGGAME_SAVE_SCREENSHOTS not set: screenshot not saved (test passing)")
 	}
 }
 
