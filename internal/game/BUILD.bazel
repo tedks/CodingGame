@@ -24,6 +24,12 @@ go_library(
 
 go_test(
     name = "game_test",
-    srcs = ["game_test.go"],
+    srcs = [
+        "game_test.go",
+        "integration_test.go",
+    ],
     embed = [":game"],
+    deps = [
+        "//internal/testutil",
+    ],
 )

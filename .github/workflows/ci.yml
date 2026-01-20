@@ -35,10 +35,23 @@ jobs:
           nix develop --command bazel build //...
 
       - name: Test
+        env:
+          CODINGGAME_SCREENSHOT_DIR: /tmp/codinggame-screenshots
+          CODINGGAME_SAVE_SCREENSHOTS: "1"
         run: |
           # Install xvfb for headless X11 tests
           sudo apt-get update && sudo apt-get install -y xvfb
+          # Screenshot directory is created by test code via NewCapturer/ScreenshotDir
           nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: /tmp/codinggame-screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Format check
         run: |
