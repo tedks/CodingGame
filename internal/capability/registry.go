@@ -88,10 +88,18 @@ func (r *Registry) Refresh() int {
 	copy(listeners, r.listeners)
 	r.mu.Unlock()
 
-	// Notify listeners
+	// Notify listeners (with panic recovery to prevent listener crashes from taking down the registry)
 	all := r.GetAll()
 	for _, l := range listeners {
-		go l.OnCapabilitiesChanged(all)
+		go func(listener RegistryListener) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					// Silently ignore panics from listeners
+					// In production, this could be logged
+				}
+			}()
+			listener.OnCapabilitiesChanged(all)
+		}(l)
 	}
 
 	return len(newCaps)

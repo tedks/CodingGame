@@ -125,6 +125,19 @@ func (w *Watcher) checkForChanges() bool {
 	paths := w.registry.WatchPaths()
 	changed := false
 
+	// Build set of current watch paths for efficient lookup
+	currentPaths := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		currentPaths[p] = true
+	}
+
+	// Clean up paths no longer being watched (prevents memory leak)
+	for path := range w.fileTimes {
+		if !currentPaths[path] {
+			delete(w.fileTimes, path)
+		}
+	}
+
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
