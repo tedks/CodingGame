@@ -8,6 +8,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/tedks/CodingGame/internal/advisor"
+	"github.com/tedks/CodingGame/internal/capability"
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/mapview"
@@ -40,6 +41,14 @@ type GameScene struct {
 	// Phase 3 components
 	advisorPool *advisor.Pool
 
+	// Phase 5 components
+	capabilityRegistry *capability.Registry
+	capabilityRenderer *capability.Renderer
+	capabilityWatcher  *capability.Watcher
+
+	// Current view
+	currentView input.ViewNumber
+
 	// Callbacks
 	onPromptSubmit func(text string) // Called when a prompt is submitted
 
@@ -71,6 +80,18 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		return nil, fmt.Errorf("failed to load advisor configs: %w", err)
 	}
 
+	// Initialize capability registry (Phase 5)
+	capRegistry := capability.NewRegistry()
+	capRegistry.RegisterDiscoverer(capability.NewBuiltinToolDiscoverer())
+	capRegistry.RegisterDiscoverer(capability.NewMCPDiscoverer(projectPath))
+	capRegistry.Refresh()
+
+	// Initialize capability renderer
+	capRenderer := capability.NewRenderer()
+
+	// Initialize capability watcher
+	capWatcher := capability.NewWatcher(capRegistry)
+
 	// Initialize input handler
 	inputHandler := input.NewHandler()
 
@@ -79,15 +100,19 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	promptPanel.SetPosition(0, height-PromptPanelHeight)
 
 	gs := &GameScene{
-		projectPath:  projectPath,
-		width:        width,
-		height:       height,
-		inputHandler: inputHandler,
-		promptPanel:  promptPanel,
-		mapView:      mapView,
-		resources:    resourceTracker,
-		interceptor:  interceptor,
-		advisorPool:  advisorPool,
+		projectPath:        projectPath,
+		width:              width,
+		height:             height,
+		inputHandler:       inputHandler,
+		promptPanel:        promptPanel,
+		mapView:            mapView,
+		resources:          resourceTracker,
+		interceptor:        interceptor,
+		advisorPool:        advisorPool,
+		capabilityRegistry: capRegistry,
+		capabilityRenderer: capRenderer,
+		capabilityWatcher:  capWatcher,
+		currentView:        input.ViewMap,
 	}
 
 	// Wire up input handler callbacks
@@ -123,6 +148,11 @@ func (gs *GameScene) setupInputCallbacks() {
 	// Update prompt text when text buffer changes
 	gs.inputHandler.OnTextChange(func(text string) {
 		gs.promptPanel.SetText(text)
+	})
+
+	// Handle view changes
+	gs.inputHandler.OnViewChange(func(view input.ViewNumber) {
+		gs.currentView = view
 	})
 
 	// Handle actions
@@ -230,8 +260,25 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	// Draw resource bar at top
 	gs.resources.Draw(screen, 0, 0, gs.width, ResourceBarHeight)
 
-	// Draw map view below resource bar (above prompt panel)
-	gs.mapView.Draw(screen, 0, ResourceBarHeight)
+	// Content area dimensions
+	contentY := ResourceBarHeight
+	contentHeight := gs.height - ResourceBarHeight - PromptPanelHeight
+
+	// Draw current view
+	switch gs.currentView {
+	case input.ViewMap:
+		gs.mapView.Draw(screen, 0, contentY)
+	case input.ViewTech:
+		gs.capabilityRenderer.Draw(
+			screen,
+			gs.capabilityRegistry.GetAll(),
+			0, contentY,
+			gs.width, contentHeight,
+		)
+	default:
+		// Other views not yet implemented - show placeholder
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("View %d not yet implemented", gs.currentView), 20, contentY+20)
+	}
 
 	// Draw prompt panel at bottom
 	gs.promptPanel.Draw(screen)
@@ -239,13 +286,13 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	// Draw debug info
 	mode := gs.inputHandler.Mode().String()
 	focus := gs.inputHandler.Focus().String()
-	viewMode := gs.mapView.ViewMode().String()
+	viewName := gs.viewName()
 	debugText := fmt.Sprintf(
-		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, T=toggle view",
+		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, 1-5=views",
 		ebiten.ActualFPS(),
 		mode,
 		focus,
-		viewMode,
+		viewName,
 		gs.mapView.ZoomLevel(),
 		gs.mapView.PanX(),
 		gs.mapView.PanY(),
@@ -256,9 +303,30 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrint(screen, debugText)
 }
 
+// viewName returns a human-readable name for the current view.
+func (gs *GameScene) viewName() string {
+	switch gs.currentView {
+	case input.ViewMap:
+		return "Map (" + gs.mapView.ViewMode().String() + ")"
+	case input.ViewBuilding:
+		return "Buildings"
+	case input.ViewUnit:
+		return "Units"
+	case input.ViewTech:
+		return "Tech Tree"
+	case input.ViewMission:
+		return "Missions"
+	default:
+		return "Unknown"
+	}
+}
+
 // OnEnter implements ui.Scene.
 func (gs *GameScene) OnEnter() {
-	// Game scene entered
+	// Start capability watcher for dynamic updates
+	if gs.capabilityWatcher != nil {
+		gs.capabilityWatcher.Start()
+	}
 }
 
 // OnExit implements ui.Scene.
@@ -268,6 +336,9 @@ func (gs *GameScene) OnExit() {
 
 // Close cleans up game scene resources.
 func (gs *GameScene) Close() error {
+	if gs.capabilityWatcher != nil {
+		gs.capabilityWatcher.Stop()
+	}
 	if gs.interceptor != nil {
 		return gs.interceptor.Stop()
 	}
