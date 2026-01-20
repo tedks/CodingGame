@@ -1,0 +1,179 @@
+package production
+
+import (
+	"os"
+	"sync"
+	"time"
+)
+
+// Watcher monitors configuration files for changes and triggers registry refresh.
+//
+// Design note: Uses polling instead of inotify/fsnotify for simplicity and portability.
+// Config files change infrequently, so the 5-second default interval is appropriate.
+// Benefits: No file handle exhaustion, works on all platforms, simple implementation.
+// Trade-off: Small delay (configurable) between file change and detection.
+type Watcher struct {
+	mu sync.Mutex
+
+	registry     *Registry
+	pollInterval time.Duration
+	running      bool
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
+
+	// File modification times for change detection
+	fileTimes map[string]time.Time
+}
+
+// NewWatcher creates a new watcher for the given registry.
+func NewWatcher(registry *Registry) *Watcher {
+	return &Watcher{
+		registry:     registry,
+		pollInterval: 5 * time.Second,
+		fileTimes:    make(map[string]time.Time),
+	}
+}
+
+// SetPollInterval configures the polling interval.
+// Note: Changes to the interval only take effect on the next Start() call.
+// Calling SetPollInterval while the watcher is running will not affect the current
+// polling rate; you must Stop() and Start() again for the new interval to apply.
+func (w *Watcher) SetPollInterval(interval time.Duration) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pollInterval = interval
+}
+
+// Start begins watching for file changes.
+func (w *Watcher) Start() error {
+	w.mu.Lock()
+	if w.running {
+		w.mu.Unlock()
+		return nil // Already running
+	}
+	w.running = true
+	w.stopCh = make(chan struct{})
+	w.mu.Unlock()
+
+	// Initialize file times
+	w.updateFileTimes()
+
+	// Start polling goroutine
+	w.wg.Add(1)
+	go w.poll()
+
+	return nil
+}
+
+// Stop stops watching for file changes.
+func (w *Watcher) Stop() error {
+	w.mu.Lock()
+	if !w.running {
+		w.mu.Unlock()
+		return nil // Not running
+	}
+	w.running = false
+	close(w.stopCh)
+	w.mu.Unlock()
+
+	w.wg.Wait()
+	return nil
+}
+
+// IsRunning returns whether the watcher is currently running.
+func (w *Watcher) IsRunning() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.running
+}
+
+// poll is the main polling loop.
+func (w *Watcher) poll() {
+	defer w.wg.Done()
+
+	w.mu.Lock()
+	interval := w.pollInterval
+	w.mu.Unlock()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-w.stopCh:
+			return
+		case <-ticker.C:
+			if w.checkForChanges() {
+				w.registry.Refresh()
+			}
+		}
+	}
+}
+
+// updateFileTimes records the current modification times of all watch paths.
+func (w *Watcher) updateFileTimes() {
+	paths := w.registry.WatchPaths()
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			// File doesn't exist or can't be accessed
+			delete(w.fileTimes, path)
+			continue
+		}
+		w.fileTimes[path] = info.ModTime()
+	}
+}
+
+// checkForChanges checks if any watched files have changed.
+// Returns true if changes were detected.
+func (w *Watcher) checkForChanges() bool {
+	paths := w.registry.WatchPaths()
+	changed := false
+
+	// Build set of current watch paths for efficient lookup
+	currentPaths := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		currentPaths[p] = true
+	}
+
+	// Clean up paths no longer being watched (prevents memory leak)
+	for path := range w.fileTimes {
+		if !currentPaths[path] {
+			delete(w.fileTimes, path)
+		}
+	}
+
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			// File doesn't exist now
+			if _, existed := w.fileTimes[path]; existed {
+				// File was deleted
+				delete(w.fileTimes, path)
+				changed = true
+			}
+			continue
+		}
+
+		modTime := info.ModTime()
+		if prevTime, exists := w.fileTimes[path]; exists {
+			if !modTime.Equal(prevTime) {
+				// File was modified
+				w.fileTimes[path] = modTime
+				changed = true
+			}
+		} else {
+			// File is new
+			w.fileTimes[path] = modTime
+			changed = true
+		}
+	}
+
+	return changed
+}
+
+// ForceRefresh triggers an immediate refresh of the registry.
+func (w *Watcher) ForceRefresh() {
+	w.updateFileTimes()
+	w.registry.Refresh()
+}
