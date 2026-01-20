@@ -25,6 +25,7 @@ go_test(
         "registry_test.go",
         "renderer_test.go",
         "service_test.go",
+        "watcher_test.go",
     ],
     embed = [":production"],
 )
