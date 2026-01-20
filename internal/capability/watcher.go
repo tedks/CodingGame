@@ -7,6 +7,11 @@ import (
 )
 
 // Watcher monitors configuration files for changes and triggers registry refresh.
+//
+// Design note: Uses polling instead of inotify/fsnotify for simplicity and portability.
+// Config files change infrequently, so the 5-second default interval is appropriate.
+// Benefits: No file handle exhaustion, works on all platforms, simple implementation.
+// Trade-off: Small delay (configurable) between file change and detection.
 type Watcher struct {
 	mu sync.Mutex
 

@@ -59,7 +59,11 @@ func (r *Registry) RemoveListener(l RegistryListener) {
 // Refresh runs all discoverers and updates the capability list.
 // Returns the number of capabilities discovered.
 // Errors from individual discoverers are stored and can be retrieved with LastErrors().
+//
+// Note: This method takes a snapshot of registered discoverers at the start.
+// Discoverers added during Refresh() will not be included until the next Refresh().
 func (r *Registry) Refresh() int {
+	// Take a snapshot of discoverers to avoid holding lock during discovery
 	r.mu.Lock()
 	discoverers := make([]Discoverer, len(r.discoverers))
 	copy(discoverers, r.discoverers)
