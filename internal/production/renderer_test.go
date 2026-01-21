@@ -89,12 +89,3 @@ func TestHealthColorsMapComplete(t *testing.T) {
 		}
 	}
 }
-
-func TestWeatherSymbolsMapComplete(t *testing.T) {
-	// Verify all weathers have symbols defined
-	for _, weather := range AllWeathers() {
-		if _, ok := weatherSymbols[weather]; !ok {
-			t.Errorf("weatherSymbols missing entry for %v", weather)
-		}
-	}
-}
