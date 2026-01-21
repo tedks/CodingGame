@@ -2,9 +2,16 @@ package multiagent
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"sync"
+	"time"
 )
+
+// listenerTimeout is the maximum time a listener callback can take before being considered stuck.
+// Listener goroutines that exceed this will be abandoned (the goroutine itself may still run,
+// but we won't block waiting for it).
+const listenerTimeout = 5 * time.Second
 
 // OrchestratorListener receives notifications about agent changes.
 type OrchestratorListener interface {
@@ -167,27 +174,22 @@ func (o *Orchestrator) TotalTokensUsed() int64 {
 
 // AssignTask assigns a task to a specific agent.
 // Returns an error if the agent is not found or already working.
+// The operation is atomic - uses agent's StartTask which checks and sets status atomically.
 func (o *Orchestrator) AssignTask(agentID string, taskDescription string) error {
 	o.mu.RLock()
 	agent, exists := o.agents[agentID]
+	listeners := make([]OrchestratorListener, len(o.listeners))
+	copy(listeners, o.listeners)
 	o.mu.RUnlock()
 
 	if !exists {
 		return fmt.Errorf("agent not found: %s", agentID)
 	}
 
-	status := agent.Status()
-	if status == StatusWorking {
-		return fmt.Errorf("agent %s is already working", agentID)
+	// StartTask is atomic - returns error if agent is already working
+	if err := agent.StartTask(taskDescription); err != nil {
+		return err
 	}
-
-	agent.StartTask(taskDescription)
-
-	// Notify listeners
-	o.mu.RLock()
-	listeners := make([]OrchestratorListener, len(o.listeners))
-	copy(listeners, o.listeners)
-	o.mu.RUnlock()
 
 	o.notifyListeners(listeners)
 	return nil
@@ -195,10 +197,13 @@ func (o *Orchestrator) AssignTask(agentID string, taskDescription string) error 
 
 // HandoffTask transfers a task from one agent to another.
 // The source agent is paused and the target agent starts the task.
+// The operation uses atomic StartTask on the target to prevent race conditions.
 func (o *Orchestrator) HandoffTask(fromAgentID, toAgentID string) error {
 	o.mu.RLock()
 	fromAgent, fromExists := o.agents[fromAgentID]
 	toAgent, toExists := o.agents[toAgentID]
+	listeners := make([]OrchestratorListener, len(o.listeners))
+	copy(listeners, o.listeners)
 	o.mu.RUnlock()
 
 	if !fromExists {
@@ -214,15 +219,13 @@ func (o *Orchestrator) HandoffTask(fromAgentID, toAgentID string) error {
 		return fmt.Errorf("source agent %s has no active task", fromAgentID)
 	}
 
-	// Pause source and start target
-	fromAgent.PauseTask()
-	toAgent.StartTask(task)
+	// Start target first (atomic) - if this fails, we don't pause the source
+	if err := toAgent.StartTask(task); err != nil {
+		return fmt.Errorf("cannot handoff: %w", err)
+	}
 
-	// Notify listeners
-	o.mu.RLock()
-	listeners := make([]OrchestratorListener, len(o.listeners))
-	copy(listeners, o.listeners)
-	o.mu.RUnlock()
+	// Only pause source after target successfully started
+	fromAgent.PauseTask()
 
 	o.notifyListeners(listeners)
 	return nil
@@ -237,6 +240,9 @@ func (o *Orchestrator) AddListener(l OrchestratorListener) {
 
 // RemoveListener unregisters a listener.
 func (o *Orchestrator) RemoveListener(l OrchestratorListener) {
+	if l == nil {
+		return
+	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	for i, listener := range o.listeners {
@@ -247,18 +253,43 @@ func (o *Orchestrator) RemoveListener(l OrchestratorListener) {
 	}
 }
 
-// notifyListeners asynchronously notifies all listeners.
+// notifyListeners asynchronously notifies all listeners with timeout protection.
+// Each listener callback runs in its own goroutine with panic recovery.
+// Note: If a listener blocks longer than listenerTimeout, its goroutine is abandoned
+// but may continue running. Callers should ensure listeners are well-behaved.
 func (o *Orchestrator) notifyListeners(listeners []OrchestratorListener) {
+	if len(listeners) == 0 {
+		return
+	}
+
 	agents := o.GetAll()
+	var wg sync.WaitGroup
+
 	for _, l := range listeners {
+		wg.Add(1)
 		go func(listener OrchestratorListener) {
+			defer wg.Done()
 			defer func() {
 				if rec := recover(); rec != nil {
-					// Silently ignore panics from listeners
+					log.Printf("orchestrator: listener panic recovered: %v", rec)
 				}
 			}()
 			listener.OnAgentsChanged(agents)
 		}(l)
+	}
+
+	// Wait for listeners with timeout to prevent indefinite blocking
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All listeners completed
+	case <-time.After(listenerTimeout):
+		log.Printf("orchestrator: listener notification timeout after %v", listenerTimeout)
 	}
 }
 

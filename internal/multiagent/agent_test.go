@@ -88,12 +88,19 @@ func TestAgentTaskLifecycle(t *testing.T) {
 	agent := NewAgent("agent-1", "Test Agent", "robot")
 
 	// Start task
-	agent.StartTask("Fix bug #123")
+	if err := agent.StartTask("Fix bug #123"); err != nil {
+		t.Fatalf("StartTask returned error: %v", err)
+	}
 	if agent.Status() != StatusWorking {
 		t.Errorf("expected Status Working, got %v", agent.Status())
 	}
 	if agent.CurrentTask() != "Fix bug #123" {
 		t.Errorf("expected CurrentTask 'Fix bug #123', got %q", agent.CurrentTask())
+	}
+
+	// Try to start another task while working - should fail
+	if err := agent.StartTask("Another task"); err == nil {
+		t.Error("expected error when starting task while already working")
 	}
 
 	// Pause task
@@ -112,6 +119,10 @@ func TestAgentTaskLifecycle(t *testing.T) {
 	agent.CompleteTask()
 	if agent.Status() != StatusCompleted {
 		t.Errorf("expected Status Completed, got %v", agent.Status())
+	}
+	// Verify currentTask is cleared after completion
+	if agent.CurrentTask() != "" {
+		t.Errorf("expected empty CurrentTask after completion, got %q", agent.CurrentTask())
 	}
 }
 

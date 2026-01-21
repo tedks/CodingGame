@@ -7,9 +7,15 @@
 package multiagent
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
+
+// DefaultTokenLimit is the default context window size for Claude models.
+// Different models have different limits (e.g., claude-3-opus: 200k, claude-3-sonnet: 200k).
+// This default should be updated when model context sizes change.
+const DefaultTokenLimit int64 = 200000
 
 // AgentStatus represents the current status of an agent.
 type AgentStatus string
@@ -68,7 +74,7 @@ func NewAgent(id, name, icon string) *Agent {
 		status:       StatusIdle,
 		filesRead:    make(map[string]time.Time),
 		lastActivity: time.Now(),
-		tokenLimit:   200000, // Default Claude context size
+		tokenLimit:   DefaultTokenLimit,
 	}
 }
 
@@ -185,6 +191,9 @@ func (a *Agent) UpdateTokenUsage(tokensUsed int64) {
 	a.tokensUsed = tokensUsed
 	if a.tokenLimit > 0 {
 		a.contextUsage = float64(tokensUsed) / float64(a.tokenLimit)
+	} else {
+		// If no limit is set, treat as 0% usage (no artificial constraint)
+		a.contextUsage = 0.0
 	}
 	a.lastActivity = time.Now()
 }
@@ -204,13 +213,18 @@ func (a *Agent) LastError() error {
 }
 
 // StartTask marks the agent as working on a task.
-func (a *Agent) StartTask(taskDescription string) {
+// Returns an error if the agent is already working (for atomic check-and-start).
+func (a *Agent) StartTask(taskDescription string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.status == StatusWorking {
+		return fmt.Errorf("agent %s is already working on: %s", a.id, a.currentTask)
+	}
 	a.status = StatusWorking
 	a.currentTask = taskDescription
 	a.lastActivity = time.Now()
 	a.lastError = nil
+	return nil
 }
 
 // CompleteTask marks the agent's current task as completed.
@@ -218,6 +232,7 @@ func (a *Agent) CompleteTask() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.status = StatusCompleted
+	a.currentTask = ""
 	a.lastActivity = time.Now()
 }
 
