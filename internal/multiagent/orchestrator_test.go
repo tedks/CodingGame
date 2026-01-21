@@ -1,7 +1,9 @@
 package multiagent
 
 import (
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewOrchestrator(t *testing.T) {
@@ -96,8 +98,8 @@ func TestOrchestratorGetByStatus(t *testing.T) {
 	agent2 := NewAgent("agent-2", "Agent 2", "robot")
 	agent3 := NewAgent("agent-3", "Agent 3", "robot")
 
-	agent1.StartTask("Task 1")
-	agent2.StartTask("Task 2")
+	_ = agent1.StartTask("Task 1")
+	_ = agent2.StartTask("Task 2")
 	// agent3 stays idle
 
 	orch.AddAgent(agent1)
@@ -122,7 +124,7 @@ func TestOrchestratorCountByStatus(t *testing.T) {
 	agent2 := NewAgent("agent-2", "Agent 2", "robot")
 	agent3 := NewAgent("agent-3", "Agent 3", "robot")
 
-	agent1.StartTask("Task 1")
+	_ = agent1.StartTask("Task 1")
 	// agent2, agent3 stay idle
 
 	orch.AddAgent(agent1)
@@ -144,7 +146,7 @@ func TestOrchestratorActiveAgentCount(t *testing.T) {
 	agent1 := NewAgent("agent-1", "Agent 1", "robot")
 	agent2 := NewAgent("agent-2", "Agent 2", "robot")
 
-	agent1.StartTask("Task 1")
+	_ = agent1.StartTask("Task 1")
 
 	orch.AddAgent(agent1)
 	orch.AddAgent(agent2)
@@ -201,7 +203,7 @@ func TestOrchestratorAssignTaskErrors(t *testing.T) {
 
 	// Agent already working
 	agent := NewAgent("agent-1", "Agent 1", "robot")
-	agent.StartTask("Existing task")
+	_ = agent.StartTask("Existing task")
 	orch.AddAgent(agent)
 
 	err = orch.AssignTask("agent-1", "New task")
@@ -216,7 +218,7 @@ func TestOrchestratorHandoffTask(t *testing.T) {
 	agent1 := NewAgent("agent-1", "Agent 1", "robot")
 	agent2 := NewAgent("agent-2", "Agent 2", "gear")
 
-	agent1.StartTask("Handoff task")
+	_ = agent1.StartTask("Handoff task")
 
 	orch.AddAgent(agent1)
 	orch.AddAgent(agent2)
@@ -262,7 +264,7 @@ func TestOrchestratorHandoffTaskErrors(t *testing.T) {
 	}
 
 	// Non-existent target
-	agent1.StartTask("Task")
+	_ = agent1.StartTask("Task")
 	err = orch.HandoffTask("agent-1", "non-existent")
 	if err == nil {
 		t.Error("expected error for non-existent target")
@@ -351,10 +353,16 @@ func TestOrchestratorGetAllAgentsWithFile(t *testing.T) {
 func TestOrchestratorListener(t *testing.T) {
 	orch := NewOrchestrator()
 
+	var mu sync.Mutex
 	var notifiedAgents []*Agent
+	done := make(chan struct{})
+
 	listener := &testListener{
 		onChanged: func(agents []*Agent) {
+			mu.Lock()
 			notifiedAgents = agents
+			mu.Unlock()
+			close(done)
 		},
 	}
 	orch.AddListener(listener)
@@ -362,11 +370,19 @@ func TestOrchestratorListener(t *testing.T) {
 	agent := NewAgent("agent-1", "Agent 1", "robot")
 	orch.AddAgent(agent)
 
-	// Give goroutine time to run
-	// In production code we'd use proper synchronization
-	if len(notifiedAgents) == 0 {
-		// Listener was called asynchronously, this is expected behavior
+	// Wait for listener notification with timeout
+	select {
+	case <-done:
+		// Notification received
+	case <-time.After(time.Second):
+		t.Error("listener notification timed out")
 	}
+
+	mu.Lock()
+	if len(notifiedAgents) != 1 {
+		t.Errorf("expected 1 agent in notification, got %d", len(notifiedAgents))
+	}
+	mu.Unlock()
 }
 
 func TestOrchestratorRemoveListener(t *testing.T) {
@@ -390,4 +406,176 @@ func (l *testListener) OnAgentsChanged(agents []*Agent) {
 	if l.onChanged != nil {
 		l.onChanged(agents)
 	}
+}
+
+// Concurrent access tests
+
+func TestOrchestratorConcurrentAddRemove(t *testing.T) {
+	orch := NewOrchestrator()
+
+	const numGoroutines = 10
+	const numOperations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 2)
+
+	// Concurrent adds
+	for i := 0; i < numGoroutines; i++ {
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				agent := NewAgent(
+					"agent-"+string(rune('A'+goroutineID))+"-"+string(rune('0'+j%10)),
+					"Agent",
+					"robot",
+				)
+				orch.AddAgent(agent)
+			}
+		}(i)
+	}
+
+	// Concurrent removes
+	for i := 0; i < numGoroutines; i++ {
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				orch.RemoveAgent("agent-" + string(rune('A'+goroutineID)) + "-" + string(rune('0'+j%10)))
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify orchestrator is in consistent state
+	count := orch.Count()
+	if count < 0 {
+		t.Errorf("invalid agent count: %d", count)
+	}
+}
+
+func TestOrchestratorConcurrentAssignTask(t *testing.T) {
+	orch := NewOrchestrator()
+
+	// Create agents
+	for i := 0; i < 5; i++ {
+		agent := NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		orch.AddAgent(agent)
+	}
+
+	const numGoroutines = 10
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errors := make(map[string]int)
+
+	wg.Add(numGoroutines)
+
+	// Multiple goroutines try to assign tasks to the same agents
+	for i := 0; i < numGoroutines; i++ {
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				agentID := "agent-" + string(rune('A'+j))
+				err := orch.AssignTask(agentID, "Task from goroutine")
+				if err != nil {
+					mu.Lock()
+					errors[agentID]++
+					mu.Unlock()
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Each agent should have been assigned exactly once (9 concurrent failures per agent)
+	for i := 0; i < 5; i++ {
+		agentID := "agent-" + string(rune('A'+i))
+		agent := orch.Get(agentID)
+		if agent == nil {
+			t.Errorf("agent %s not found", agentID)
+			continue
+		}
+		if agent.Status() != StatusWorking {
+			t.Errorf("agent %s should be working, got %v", agentID, agent.Status())
+		}
+	}
+}
+
+func TestOrchestratorConcurrentReads(t *testing.T) {
+	orch := NewOrchestrator()
+
+	// Create agents
+	for i := 0; i < 10; i++ {
+		agent := NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		agent.MarkFileRead("shared.go")
+		_ = agent.StartTask("Task")
+		orch.AddAgent(agent)
+	}
+
+	const numGoroutines = 20
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Concurrent reads shouldn't cause issues
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = orch.GetAll()
+				_ = orch.Count()
+				_ = orch.CountByStatus()
+				_ = orch.ActiveAgentCount()
+				_ = orch.TotalTokensUsed()
+				_ = orch.GetByStatus(StatusWorking)
+				_ = orch.GetSharedFiles()
+				_ = orch.GetAgentWithFile("shared.go")
+				_ = orch.GetAllAgentsWithFile("shared.go")
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestOrchestratorListenerPanicRecovery(t *testing.T) {
+	orch := NewOrchestrator()
+
+	done := make(chan struct{})
+
+	// Listener that panics
+	panicListener := &testListener{
+		onChanged: func(agents []*Agent) {
+			panic("intentional panic for testing")
+		},
+	}
+
+	// Listener that works normally
+	normalListener := &testListener{
+		onChanged: func(agents []*Agent) {
+			close(done)
+		},
+	}
+
+	orch.AddListener(panicListener)
+	orch.AddListener(normalListener)
+
+	agent := NewAgent("agent-1", "Agent 1", "robot")
+	orch.AddAgent(agent) // This should not panic even though panicListener panics
+
+	// Wait for normal listener to be called
+	select {
+	case <-done:
+		// Normal listener was called despite panic in other listener
+	case <-time.After(time.Second):
+		t.Error("normal listener should have been called despite panic in other listener")
+	}
+}
+
+func TestOrchestratorRemoveNilListener(t *testing.T) {
+	orch := NewOrchestrator()
+
+	// Should not panic
+	orch.RemoveListener(nil)
 }
