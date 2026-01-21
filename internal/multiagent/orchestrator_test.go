@@ -212,6 +212,23 @@ func TestOrchestratorAssignTaskErrors(t *testing.T) {
 	}
 }
 
+func TestOrchestratorAssignEmptyTask(t *testing.T) {
+	orch := NewOrchestrator()
+
+	agent := NewAgent("agent-1", "Agent 1", "robot")
+	orch.AddAgent(agent)
+
+	err := orch.AssignTask("agent-1", "")
+	if err == nil {
+		t.Error("expected error for empty task description")
+	}
+
+	// Verify agent is still idle (task was not assigned)
+	if agent.Status() != StatusIdle {
+		t.Errorf("expected agent to remain idle, got %v", agent.Status())
+	}
+}
+
 func TestOrchestratorHandoffTask(t *testing.T) {
 	orch := NewOrchestrator()
 
@@ -578,4 +595,12 @@ func TestOrchestratorRemoveNilListener(t *testing.T) {
 
 	// Should not panic
 	orch.RemoveListener(nil)
+}
+
+func TestAbandonedListenerCount(t *testing.T) {
+	// Verify the counter is accessible and returns a non-negative value
+	count := AbandonedListenerCount()
+	if count < 0 {
+		t.Errorf("expected non-negative count, got %d", count)
+	}
 }

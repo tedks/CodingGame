@@ -5,6 +5,7 @@ import (
 	"log"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,6 +13,19 @@ import (
 // Listener goroutines that exceed this will be abandoned (the goroutine itself may still run,
 // but we won't block waiting for it).
 const listenerTimeout = 5 * time.Second
+
+// abandonedListenerCount tracks the number of listener notifications that timed out.
+// This counter is useful for debugging listener performance issues. When a listener
+// callback takes longer than listenerTimeout, the orchestrator stops waiting but
+// the goroutine may still be running in the background.
+var abandonedListenerCount int64
+
+// AbandonedListenerCount returns the number of listener notifications that have
+// timed out. This is useful for debugging listener performance issues and detecting
+// potential goroutine leaks from slow or stuck listeners.
+func AbandonedListenerCount() int64 {
+	return atomic.LoadInt64(&abandonedListenerCount)
+}
 
 // OrchestratorListener receives notifications about agent changes.
 type OrchestratorListener interface {
@@ -173,9 +187,13 @@ func (o *Orchestrator) TotalTokensUsed() int64 {
 }
 
 // AssignTask assigns a task to a specific agent.
-// Returns an error if the agent is not found or already working.
+// Returns an error if the agent is not found, already working, or task description is empty.
 // The operation is atomic - uses agent's StartTask which checks and sets status atomically.
 func (o *Orchestrator) AssignTask(agentID string, taskDescription string) error {
+	if taskDescription == "" {
+		return fmt.Errorf("task description cannot be empty")
+	}
+
 	o.mu.RLock()
 	agent, exists := o.agents[agentID]
 	listeners := make([]OrchestratorListener, len(o.listeners))
@@ -289,6 +307,7 @@ func (o *Orchestrator) notifyListeners(listeners []OrchestratorListener) {
 	case <-done:
 		// All listeners completed
 	case <-time.After(listenerTimeout):
+		atomic.AddInt64(&abandonedListenerCount, 1)
 		log.Printf("orchestrator: listener notification timeout after %v", listenerTimeout)
 	}
 }
