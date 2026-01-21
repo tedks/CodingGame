@@ -20,11 +20,11 @@ func NewRenderer() *Renderer {
 
 // Layout constants
 const (
-	agentPadding     = 20
-	agentCardWidth   = 200
-	agentCardHeight  = 120
-	agentCardSpacing = 20
-	agentCardsPerRow = 4
+	agentPadding      = 20
+	agentCardWidth    = 200
+	agentCardHeight   = 120
+	agentCardSpacing  = 20
+	agentCardsPerRow  = 4
 	agentHeaderHeight = 60
 )
 
