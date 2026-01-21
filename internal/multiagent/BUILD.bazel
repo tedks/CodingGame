@@ -1,0 +1,27 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "multiagent",
+    srcs = [
+        "agent.go",
+        "orchestrator.go",
+        "renderer.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/multiagent",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+        "@com_github_hajimehoshi_ebiten_v2//ebitenutil",
+        "@com_github_hajimehoshi_ebiten_v2//vector",
+    ],
+)
+
+go_test(
+    name = "multiagent_test",
+    srcs = [
+        "agent_test.go",
+        "orchestrator_test.go",
+        "renderer_test.go",
+    ],
+    embed = [":multiagent"],
+)
