@@ -36,15 +36,6 @@ var healthColors = map[HealthStatus]color.RGBA{
 	HealthUnknown:   {R: 0x75, G: 0x75, B: 0x75, A: 0xFF}, // Gray
 }
 
-// Weather symbols (ASCII art style)
-var weatherSymbols = map[Weather]string{
-	WeatherClear:   "sun",
-	WeatherCloudy:  "cloud",
-	WeatherStorm:   "storm",
-	WeatherDrought: "dry",
-	WeatherFlood:   "flood",
-}
-
 // Draw renders the production view to the screen.
 // Parameters:
 //   - screen: the Ebiten image to draw to

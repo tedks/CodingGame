@@ -12,6 +12,12 @@ import (
 // Config files change infrequently, so the 5-second default interval is appropriate.
 // Benefits: No file handle exhaustion, works on all platforms, simple implementation.
 // Trade-off: Small delay (configurable) between file change and detection.
+//
+// Concurrency note: The watcher calls registry.WatchPaths() and registry.Refresh()
+// during polling. While these methods are individually thread-safe, discoverers should
+// be registered before starting the watcher to avoid potential races where a discoverer
+// is added mid-poll. This is by design - registering discoverers at startup is the
+// expected usage pattern.
 type Watcher struct {
 	mu sync.Mutex
 
