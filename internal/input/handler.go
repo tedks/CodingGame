@@ -307,6 +307,8 @@ func (h *Handler) handleBuiltInAction(action Action) {
 		h.SetView(ViewMission)
 	case ActionView6:
 		h.SetView(ViewProduction)
+	case ActionView7:
+		h.SetView(ViewMultiAgent)
 	}
 }
 

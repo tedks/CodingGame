@@ -39,13 +39,14 @@ const (
 	ActionFocusPrompt // Quick focus to prompt
 	ActionFocusMap    // Quick focus to map
 
-	// View switching (1-6)
+	// View switching (1-7)
 	ActionView1
 	ActionView2
 	ActionView3
 	ActionView4
 	ActionView5
 	ActionView6
+	ActionView7
 
 	// Prompt actions
 	ActionSubmitPrompt // Enter in prompt
@@ -216,7 +217,7 @@ func (b *Bindings) loadCommonBindings() {
 		Binding{Key: ebiten.KeyTab, Modifiers: Modifiers{Shift: true}, Action: ActionFocusPrev},
 	)
 
-	// View switching with number keys 1-6
+	// View switching with number keys 1-7
 	b.bindings = append(b.bindings,
 		Binding{Key: ebiten.Key1, Action: ActionView1},
 		Binding{Key: ebiten.Key2, Action: ActionView2},
@@ -224,6 +225,7 @@ func (b *Bindings) loadCommonBindings() {
 		Binding{Key: ebiten.Key4, Action: ActionView4},
 		Binding{Key: ebiten.Key5, Action: ActionView5},
 		Binding{Key: ebiten.Key6, Action: ActionView6},
+		Binding{Key: ebiten.Key7, Action: ActionView7},
 	)
 
 	// Selection
