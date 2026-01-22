@@ -242,8 +242,9 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 		x := float64(col)*tileSize + m.panX + float64(offsetX)
 		y := float64(row)*tileSize + m.panY + float64(offsetY)
 
-		// Skip if outside visible area
-		if x+tileSize < 0 || x > float64(m.width) || y+tileSize < 0 || y > float64(m.height) {
+		// Skip if outside visible area (accounting for offset)
+		if x+tileSize < float64(offsetX) || x > float64(offsetX+m.width) ||
+			y+tileSize < float64(offsetY) || y > float64(offsetY+m.height) {
 			continue
 		}
 
@@ -289,7 +290,9 @@ func (m *MapView) drawDataflowView(screen *ebiten.Image, offsetX, offsetY int) {
 		x := float64(col)*tileSize + m.panX + float64(offsetX)
 		y := float64(row)*tileSize + m.panY + float64(offsetY)
 
-		if x+tileSize < 0 || x > float64(m.width) || y+tileSize < 0 || y > float64(m.height) {
+		// Skip if outside visible area (accounting for offset)
+		if x+tileSize < float64(offsetX) || x > float64(offsetX+m.width) ||
+			y+tileSize < float64(offsetY) || y > float64(offsetY+m.height) {
 			continue
 		}
 
@@ -297,7 +300,7 @@ func (m *MapView) drawDataflowView(screen *ebiten.Image, offsetX, offsetY int) {
 	}
 
 	// Draw belts (connections)
-	m.beltRenderer.Draw(screen, m.connectionGraph, tilePositions, 0, 0)
+	m.beltRenderer.Draw(screen, m.connectionGraph, tilePositions, offsetX, offsetY)
 
 	// Draw grid lines with a different style to indicate dataflow mode
 	m.drawDataflowGrid(screen, offsetX, offsetY, tileSize)
@@ -308,17 +311,17 @@ func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, t
 	// Use a slightly different color to indicate we're in dataflow mode
 	gridColor := color.RGBA{80, 60, 100, 255} // Purple tint for dataflow
 
-	// Draw vertical grid lines
-	for x := m.panX + float64(offsetX); x < float64(m.width); x += tileSize {
-		if x >= 0 {
-			vector.StrokeLine(screen, float32(x), 0, float32(x), float32(m.height), 1, gridColor, false)
+	// Draw vertical grid lines (clipped to map area)
+	for x := m.panX + float64(offsetX); x < float64(offsetX+m.width); x += tileSize {
+		if x >= float64(offsetX) {
+			vector.StrokeLine(screen, float32(x), float32(offsetY), float32(x), float32(offsetY+m.height), 1, gridColor, false)
 		}
 	}
 
-	// Draw horizontal grid lines
-	for y := m.panY + float64(offsetY); y < float64(m.height); y += tileSize {
-		if y >= 0 {
-			vector.StrokeLine(screen, 0, float32(y), float32(m.width), float32(y), 1, gridColor, false)
+	// Draw horizontal grid lines (clipped to map area)
+	for y := m.panY + float64(offsetY); y < float64(offsetY+m.height); y += tileSize {
+		if y >= float64(offsetY) {
+			vector.StrokeLine(screen, float32(offsetX), float32(y), float32(offsetX+m.width), float32(y), 1, gridColor, false)
 		}
 	}
 }
@@ -363,17 +366,17 @@ func clampUint8(v int) uint8 {
 
 // drawGrid draws the grid lines
 func (m *MapView) drawGrid(screen *ebiten.Image, offsetX, offsetY int, tileSize float64) {
-	// Draw vertical grid lines
-	for x := m.panX + float64(offsetX); x < float64(m.width); x += tileSize {
-		if x >= 0 {
-			vector.StrokeLine(screen, float32(x), 0, float32(x), float32(m.height), 1, m.gridColor, false)
+	// Draw vertical grid lines (clipped to map area)
+	for x := m.panX + float64(offsetX); x < float64(offsetX+m.width); x += tileSize {
+		if x >= float64(offsetX) {
+			vector.StrokeLine(screen, float32(x), float32(offsetY), float32(x), float32(offsetY+m.height), 1, m.gridColor, false)
 		}
 	}
 
-	// Draw horizontal grid lines
-	for y := m.panY + float64(offsetY); y < float64(m.height); y += tileSize {
-		if y >= 0 {
-			vector.StrokeLine(screen, 0, float32(y), float32(m.width), float32(y), 1, m.gridColor, false)
+	// Draw horizontal grid lines (clipped to map area)
+	for y := m.panY + float64(offsetY); y < float64(offsetY+m.height); y += tileSize {
+		if y >= float64(offsetY) {
+			vector.StrokeLine(screen, float32(offsetX), float32(y), float32(offsetX+m.width), float32(y), 1, m.gridColor, false)
 		}
 	}
 }
