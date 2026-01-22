@@ -184,6 +184,25 @@ bd sync               # Sync with git
 - ALWAYS verify Nix/Bazel environment before running quality gates
 - Include the PR URL in your handoff notes
 
+## Merging Pull Requests
+
+When merging PRs, follow these practices:
+
+```bash
+# Use normal merge (not squash or rebase) to preserve commit history
+gh pr merge <PR-number> --merge
+
+# Do NOT delete the branch immediately after merge
+# Branches should be kept for reference and potential follow-up work
+```
+
+**Merge guidelines:**
+- Use `--merge` (normal merge commit) to preserve full commit history
+- Do NOT use `--squash` or `--rebase` unless explicitly requested
+- Do NOT delete branches immediately after merge (`--delete-branch`)
+- Wait for CI to pass before merging
+- Sync beads after merge: `bd sync`
+
 ## Building and Testing
 
 This project uses **Nix** for environmental dependencies and **Bazel** for code dependencies and builds.
