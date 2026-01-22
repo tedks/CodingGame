@@ -108,7 +108,7 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width
 // drawEmptyState renders a message when no agents are active.
 func (r *Renderer) drawEmptyState(screen *ebiten.Image, x, y, width, height int) {
 	msg := "No active agents"
-	hint := "Press 'a' to add a new agent"
+	hint := "Agents will appear here when active"
 
 	// Center the messages
 	msgX := x + width/2 - len(msg)*3
