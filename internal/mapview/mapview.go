@@ -293,6 +293,13 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 	// Top padding offset (one empty row to avoid overlapping debug text)
 	topOffset := float64(TopPadding) * tileSize
 
+	// Draw project directory path at top of content area
+	labelX := int(m.panX) + offsetX + 4
+	labelY := int(m.panY) + offsetY + int(topOffset) - 14 // Just above first row
+	if labelY >= offsetY {
+		ebitenutil.DebugPrintAt(screen, m.projectPath+"/", labelX, labelY)
+	}
+
 	// Get visible nodes based on current viewport (account for top padding)
 	viewX := -m.panX
 	viewY := -m.panY - topOffset
@@ -414,16 +421,20 @@ func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, t
 
 // drawTile renders a single tile with label
 func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
-	// Determine tile color based on fog state
+	// Determine tile color based on fog state and file type
 	var tileColor color.RGBA
 	if t.IsRevealed() {
-		tileColor = m.revealedColor
 		if t.IsDirectory() {
-			// Directories are slightly darker
 			tileColor = color.RGBA{80, 100, 130, 255}
+		} else {
+			tileColor = fileTypeColor(t.Name())
 		}
 	} else {
-		tileColor = m.fogColor
+		if t.IsDirectory() {
+			tileColor = color.RGBA{50, 60, 75, 200}
+		} else {
+			tileColor = fileTypeFogColor(t.Name())
+		}
 	}
 
 	// Draw tile rectangle (with border spacing)
@@ -463,6 +474,103 @@ func clampUint8(v int) uint8 {
 		return 255
 	}
 	return uint8(v)
+}
+
+// fileTypeColor returns a color tint based on file extension (revealed state)
+func fileTypeColor(name string) color.RGBA {
+	ext := filepath.Ext(name)
+	base := filepath.Base(name)
+
+	// Bazel files
+	if base == "BUILD.bazel" || base == "WORKSPACE" || base == "MODULE.bazel" ||
+		ext == ".bazel" || base == ".bazelrc" || base == ".bazelversion" {
+		return color.RGBA{180, 160, 80, 255} // Yellow/gold
+	}
+
+	switch ext {
+	// Go
+	case ".go":
+		return color.RGBA{80, 160, 180, 255} // Cyan/teal
+	// Python
+	case ".py", ".pyw", ".pyi":
+		return color.RGBA{80, 140, 200, 255} // Blue
+	// JavaScript/TypeScript
+	case ".js", ".mjs", ".cjs":
+		return color.RGBA{200, 180, 80, 255} // Yellow
+	case ".ts", ".tsx":
+		return color.RGBA{60, 120, 180, 255} // TypeScript blue
+	case ".jsx":
+		return color.RGBA{100, 200, 220, 255} // React cyan
+	// Rust
+	case ".rs":
+		return color.RGBA{180, 100, 60, 255} // Rust orange
+	// C/C++
+	case ".c", ".h":
+		return color.RGBA{100, 100, 180, 255} // C blue
+	case ".cpp", ".cc", ".cxx", ".hpp", ".hxx":
+		return color.RGBA{120, 80, 160, 255} // C++ purple
+	// Java/Kotlin
+	case ".java":
+		return color.RGBA{180, 100, 80, 255} // Java red-orange
+	case ".kt", ".kts":
+		return color.RGBA{160, 100, 200, 255} // Kotlin purple
+	// Ruby
+	case ".rb", ".erb":
+		return color.RGBA{180, 60, 60, 255} // Ruby red
+	// PHP
+	case ".php":
+		return color.RGBA{120, 120, 180, 255} // PHP purple-blue
+	// Swift
+	case ".swift":
+		return color.RGBA{200, 100, 60, 255} // Swift orange
+	// Markdown/docs
+	case ".md", ".markdown", ".rst", ".txt":
+		return color.RGBA{100, 160, 100, 255} // Green
+	// Shell
+	case ".sh", ".bash", ".zsh", ".fish":
+		return color.RGBA{180, 130, 80, 255} // Orange
+	// Nix
+	case ".nix":
+		return color.RGBA{140, 100, 180, 255} // Purple
+	// Config files
+	case ".yml", ".yaml":
+		return color.RGBA{180, 100, 140, 255} // Pink/magenta
+	case ".json":
+		return color.RGBA{100, 140, 180, 255} // Light blue
+	case ".toml":
+		return color.RGBA{160, 120, 100, 255} // Brown
+	case ".xml":
+		return color.RGBA{160, 140, 100, 255} // Tan
+	case ".ini", ".cfg", ".conf":
+		return color.RGBA{140, 140, 120, 255} // Khaki
+	// Web
+	case ".html", ".htm":
+		return color.RGBA{200, 100, 60, 255} // HTML orange
+	case ".css", ".scss", ".sass", ".less":
+		return color.RGBA{80, 120, 200, 255} // CSS blue
+	// Data
+	case ".sql":
+		return color.RGBA{200, 160, 80, 255} // SQL gold
+	case ".csv", ".tsv":
+		return color.RGBA{100, 180, 100, 255} // Data green
+	// Lock/generated
+	case ".lock", ".sum":
+		return color.RGBA{120, 120, 120, 255} // Gray
+	default:
+		return color.RGBA{100, 120, 150, 255} // Default blue-gray
+	}
+}
+
+// fileTypeFogColor returns a dimmed color tint for unrevealed files
+func fileTypeFogColor(name string) color.RGBA {
+	c := fileTypeColor(name)
+	// Dim the color for fog state
+	return color.RGBA{
+		uint8(int(c.R) * 50 / 100),
+		uint8(int(c.G) * 50 / 100),
+		uint8(int(c.B) * 50 / 100),
+		200,
+	}
 }
 
 // drawGrid draws the grid lines bounded to the content area
