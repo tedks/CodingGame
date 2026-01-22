@@ -437,20 +437,12 @@ func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, t
 
 // drawTile renders a single tile with label
 func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
-	// Determine tile color based on fog state and file type
+	// Determine tile color based on file type (always use full color)
 	var tileColor color.RGBA
-	if t.IsRevealed() {
-		if t.IsDirectory() {
-			tileColor = color.RGBA{80, 100, 130, 255}
-		} else {
-			tileColor = fileTypeColor(t.Name())
-		}
+	if t.IsDirectory() {
+		tileColor = color.RGBA{80, 100, 130, 255}
 	} else {
-		if t.IsDirectory() {
-			tileColor = color.RGBA{50, 60, 75, 200}
-		} else {
-			tileColor = fileTypeFogColor(t.Name())
-		}
+		tileColor = fileTypeColor(t.Name())
 	}
 
 	// Draw tile rectangle (with border spacing)
@@ -464,6 +456,11 @@ func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float3
 		255,
 	}
 	vector.StrokeRect(screen, x, y, size-TileBorderSpacing, size-TileBorderSpacing, 1, borderColor, false)
+
+	// Draw fog overlay for unrevealed tiles
+	if !t.IsRevealed() {
+		vector.DrawFilledRect(screen, x, y, size-TileBorderSpacing, size-TileBorderSpacing, m.fogColor, false)
+	}
 
 	// Draw label (file/directory name)
 	label := t.Name()
@@ -578,17 +575,6 @@ func fileTypeColor(name string) color.RGBA {
 }
 
 // fileTypeFogColor returns a dimmed color tint for unrevealed files
-func fileTypeFogColor(name string) color.RGBA {
-	c := fileTypeColor(name)
-	// Dim the color for fog state
-	return color.RGBA{
-		uint8(int(c.R) * 50 / 100),
-		uint8(int(c.G) * 50 / 100),
-		uint8(int(c.B) * 50 / 100),
-		200,
-	}
-}
-
 // drawGrid draws the grid lines bounded to the content area
 func (m *MapView) drawGrid(screen *ebiten.Image, offsetX, offsetY int, tileSize float64) {
 	// Get content bounds from tree layout
