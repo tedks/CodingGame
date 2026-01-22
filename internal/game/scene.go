@@ -347,7 +347,7 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	if gs.config.Harness != "" {
 		debugText += fmt.Sprintf("\nHarness: %s | Model: %s", gs.config.Harness, gs.config.Model)
 	}
-	ebitenutil.DebugPrint(screen, debugText)
+	ebitenutil.DebugPrintAt(screen, debugText, 0, ResourceBarHeight)
 }
 
 // viewName returns a human-readable name for the current view.
