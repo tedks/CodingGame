@@ -68,27 +68,27 @@ func TestPan(t *testing.T) {
 		t.Fatalf("failed to create map view: %v", err)
 	}
 
-	// Test panning
+	// Test panning (Pan is inverted - subtracts from pan values to move camera)
 	initialX := mapView.PanX()
 	initialY := mapView.PanY()
 
 	mapView.Pan(10, 20)
 
-	if mapView.PanX() != initialX+10 {
-		t.Errorf("expected panX %f, got %f", initialX+10, mapView.PanX())
+	if mapView.PanX() != initialX-10 {
+		t.Errorf("expected panX %f, got %f", initialX-10, mapView.PanX())
 	}
-	if mapView.PanY() != initialY+20 {
-		t.Errorf("expected panY %f, got %f", initialY+20, mapView.PanY())
+	if mapView.PanY() != initialY-20 {
+		t.Errorf("expected panY %f, got %f", initialY-20, mapView.PanY())
 	}
 
 	// Test negative pan
 	mapView.Pan(-5, -10)
 
-	if mapView.PanX() != initialX+5 {
-		t.Errorf("expected panX %f, got %f", initialX+5, mapView.PanX())
+	if mapView.PanX() != initialX-5 {
+		t.Errorf("expected panX %f, got %f", initialX-5, mapView.PanX())
 	}
-	if mapView.PanY() != initialY+10 {
-		t.Errorf("expected panY %f, got %f", initialY+10, mapView.PanY())
+	if mapView.PanY() != initialY-10 {
+		t.Errorf("expected panY %f, got %f", initialY-10, mapView.PanY())
 	}
 }
 
@@ -141,8 +141,8 @@ func TestZoom(t *testing.T) {
 		mapView.ZoomOut()
 	}
 
-	if mapView.ZoomLevel() != int(ZoomWorld) {
-		t.Errorf("expected zoom to stay at %d, got %d", ZoomWorld, mapView.ZoomLevel())
+	if mapView.ZoomLevel() != int(ZoomOverview) {
+		t.Errorf("expected zoom to stay at %d, got %d", ZoomOverview, mapView.ZoomLevel())
 	}
 }
 
@@ -218,11 +218,12 @@ func TestGetTileSize(t *testing.T) {
 		zoom     ZoomLevel
 		expected float64
 	}{
-		{ZoomWorld, 40},
-		{ZoomRegion, 60},
-		{ZoomCity, 80},
-		{ZoomStreet, 100},
-		{ZoomInterior, 120},
+		{ZoomOverview, 40},
+		{ZoomWorld, 64},
+		{ZoomRegion, 80},
+		{ZoomCity, 100},
+		{ZoomStreet, 120},
+		{ZoomInterior, 140},
 	}
 
 	for _, tt := range tests {
