@@ -12,6 +12,7 @@ import (
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/mapview"
+	"github.com/tedks/CodingGame/internal/multiagent"
 	"github.com/tedks/CodingGame/internal/production"
 	"github.com/tedks/CodingGame/internal/resources"
 	"github.com/tedks/CodingGame/internal/ui"
@@ -51,6 +52,10 @@ type GameScene struct {
 	productionRegistry *production.Registry
 	productionRenderer *production.Renderer
 	productionWatcher  *production.Watcher
+
+	// Phase 7 components
+	multiagentOrchestrator *multiagent.Orchestrator
+	multiagentRenderer     *multiagent.Renderer
 
 	// Current view
 	currentView input.ViewNumber
@@ -109,6 +114,12 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	// Initialize production watcher
 	prodWatcher := production.NewWatcher(prodRegistry)
 
+	// Initialize multi-agent orchestrator (Phase 7)
+	maOrchestrator := multiagent.NewOrchestrator()
+
+	// Initialize multi-agent renderer
+	maRenderer := multiagent.NewRenderer()
+
 	// Initialize input handler
 	inputHandler := input.NewHandler()
 
@@ -129,10 +140,12 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		capabilityRegistry: capRegistry,
 		capabilityRenderer: capRenderer,
 		capabilityWatcher:  capWatcher,
-		productionRegistry: prodRegistry,
-		productionRenderer: prodRenderer,
-		productionWatcher:  prodWatcher,
-		currentView:        input.ViewMap,
+		productionRegistry:     prodRegistry,
+		productionRenderer:     prodRenderer,
+		productionWatcher:      prodWatcher,
+		multiagentOrchestrator: maOrchestrator,
+		multiagentRenderer:     maRenderer,
+		currentView:            input.ViewMap,
 	}
 
 	// Wire up input handler callbacks
@@ -302,6 +315,13 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 			0, contentY,
 			gs.width, contentHeight,
 		)
+	case input.ViewMultiAgent:
+		gs.multiagentRenderer.Draw(
+			screen,
+			gs.multiagentOrchestrator.GetAll(),
+			0, contentY,
+			gs.width, contentHeight,
+		)
 	default:
 		// Other views not yet implemented - show placeholder
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("View %d not yet implemented", gs.currentView), 20, contentY+20)
@@ -315,7 +335,7 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	focus := gs.inputHandler.Focus().String()
 	viewName := gs.viewName()
 	debugText := fmt.Sprintf(
-		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, 1-6=views",
+		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, 1-7=views",
 		ebiten.ActualFPS(),
 		mode,
 		focus,
@@ -345,6 +365,8 @@ func (gs *GameScene) viewName() string {
 		return "Missions"
 	case input.ViewProduction:
 		return "Production"
+	case input.ViewMultiAgent:
+		return "Multi-Agent"
 	default:
 		return "Unknown"
 	}
