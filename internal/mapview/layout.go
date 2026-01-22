@@ -32,13 +32,13 @@ type TreeLayout struct {
 	allNodes []*LayoutNode          // flat list for iteration
 
 	// Layout parameters
-	tileWidth       float64
-	tileHeight      float64
-	indentWidth     float64 // Pixels per depth level
-	verticalGap     float64 // Gap between directory groups
-	horizontalGap   float64 // Gap between tiles horizontally
-	maxTilesPerRow  int     // Max tiles per row for horizontal layout
-	viewportWidth   float64 // Current viewport width for wrapping
+	tileWidth      float64
+	tileHeight     float64
+	indentWidth    float64 // Pixels per depth level
+	verticalGap    float64 // Gap between directory groups
+	horizontalGap  float64 // Gap between tiles horizontally
+	maxTilesPerRow int     // Max tiles per row for horizontal layout
+	viewportWidth  float64 // Current viewport width for wrapping
 }
 
 // NewTreeLayout creates a new tree layout from tiles.
@@ -46,12 +46,12 @@ func NewTreeLayout(tiles []*tile.Tile, tileSize float64) *TreeLayout {
 	layout := &TreeLayout{
 		nodeMap:        make(map[string]*LayoutNode),
 		tileWidth:      tileSize,
-		tileHeight:     tileSize,         // Square tiles for grid alignment
-		indentWidth:    tileSize,         // Indent = 1 tile width
-		verticalGap:    0,                // No extra gaps (grid aligned)
-		horizontalGap:  0,                // No extra gaps (grid aligned)
-		maxTilesPerRow: 10,               // Default max tiles per row
-		viewportWidth:  tileSize * 10,    // Default viewport
+		tileHeight:     tileSize,      // Square tiles for grid alignment
+		indentWidth:    tileSize,      // Indent = 1 tile width
+		verticalGap:    0,             // No extra gaps (grid aligned)
+		horizontalGap:  0,             // No extra gaps (grid aligned)
+		maxTilesPerRow: 10,            // Default max tiles per row
+		viewportWidth:  tileSize * 10, // Default viewport
 	}
 
 	layout.buildTree(tiles)
