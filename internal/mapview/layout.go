@@ -133,8 +133,9 @@ func (l *TreeLayout) sortChildren(node *LayoutNode) {
 	}
 }
 
-// computeLayout calculates X, Y positions for all nodes using grid-aligned horizontal flow.
-// Sibling directories are placed side-by-side when they fit.
+// computeLayout calculates X, Y positions for all nodes.
+// Uses a simple depth-first layout: directories stack vertically,
+// files within a directory flow horizontally.
 func (l *TreeLayout) computeLayout() {
 	if l.root == nil {
 		return
@@ -147,79 +148,28 @@ func (l *TreeLayout) computeLayout() {
 	}
 	l.maxTilesPerRow = tilesPerRow
 
-	// First pass: calculate subtree widths
-	l.calcSubtreeWidth(l.root)
-
-	// Second pass: layout with horizontal placement
-	l.layoutSubtree(l.root, 0, 0)
+	currentRow := 0
+	l.layoutNodeSimple(l.root, 0, &currentRow)
 }
 
-// SubtreeWidth is stored in the Col field temporarily during width calculation
-// (we'll overwrite it during actual layout)
-
-// calcSubtreeWidth calculates how many columns each subtree needs.
-// Returns the width in columns.
-func (l *TreeLayout) calcSubtreeWidth(node *LayoutNode) int {
+// layoutNodeSimple does a depth-first layout.
+// - Directories are placed at their depth column, one per row
+// - Files within a directory flow horizontally starting at depth+1
+func (l *TreeLayout) layoutNodeSimple(node *LayoutNode, depth int, currentRow *int) {
 	if node == nil {
-		return 0
+		return
 	}
-
-	// Separate directories and files
-	var dirs, files []*LayoutNode
-	for _, child := range node.Children {
-		if child.Tile != nil && child.Tile.IsDirectory() {
-			dirs = append(dirs, child)
-		} else if child.Tile != nil {
-			files = append(files, child)
-		}
-	}
-
-	// Calculate width needed for directories (placed side by side)
-	dirWidth := 0
-	for _, dir := range dirs {
-		childWidth := l.calcSubtreeWidth(dir)
-		// Directory needs at least 1 column for itself
-		if childWidth < 1 {
-			childWidth = 1
-		}
-		dirWidth += childWidth
-	}
-
-	// Calculate width needed for files (horizontal row)
-	fileWidth := len(files)
-
-	// Total width is max of: 1 (for this node), dir children width, file children width
-	width := 1
-	if dirWidth > width {
-		width = dirWidth
-	}
-	if fileWidth > width {
-		width = fileWidth
-	}
-
-	// Store width temporarily (will be overwritten during layout)
-	node.Col = width
-	return width
-}
-
-// layoutSubtree places a node and its children starting at (startCol, startRow).
-// Returns the row after this subtree.
-func (l *TreeLayout) layoutSubtree(node *LayoutNode, startCol, startRow int) int {
-	if node == nil {
-		return startRow
-	}
-
-	currentRow := startRow
 
 	// Place this node (skip virtual root)
 	if node.Tile != nil {
-		node.Row = currentRow
-		node.Col = startCol
-		node.X = float64(startCol) * l.tileWidth
-		node.Y = float64(currentRow) * l.tileHeight
+		node.Row = *currentRow
+		node.Col = depth
+		node.Depth = depth
+		node.X = float64(depth) * l.tileWidth
+		node.Y = float64(*currentRow) * l.tileHeight
 		node.Width = l.tileWidth
 		node.Height = l.tileHeight
-		currentRow++
+		*currentRow++
 	}
 
 	// Separate directories and files
@@ -232,63 +182,43 @@ func (l *TreeLayout) layoutSubtree(node *LayoutNode, startCol, startRow int) int
 		}
 	}
 
-	// Layout directories side-by-side
-	if len(dirs) > 0 {
-		dirRow := currentRow
-		maxChildRow := currentRow
-
-		col := startCol
-		if node.Tile != nil {
-			col = startCol // Children start at same column as parent (indented by being in subtree)
-		}
-
-		for _, dir := range dirs {
-			// Get the pre-calculated width for this subtree
-			subtreeWidth := l.calcSubtreeWidth(dir)
-			if subtreeWidth < 1 {
-				subtreeWidth = 1
-			}
-
-			// Layout this directory subtree
-			endRow := l.layoutSubtree(dir, col, dirRow)
-			if endRow > maxChildRow {
-				maxChildRow = endRow
-			}
-
-			// Move to next column position
-			col += subtreeWidth
-		}
-
-		currentRow = maxChildRow
-	}
-
-	// Layout files horizontally
+	// Layout files first - horizontal flow starting at depth+1
 	if len(files) > 0 {
-		col := startCol
-		if node.Tile != nil {
-			col = startCol // Files at same indent as parent's children position
+		childDepth := depth + 1
+		if node.Tile == nil {
+			childDepth = 0 // Root level files start at column 0
 		}
 
+		col := childDepth
 		for _, file := range files {
-			// Wrap if we exceed viewport
+			// Wrap to next row if we exceed viewport
 			if col >= l.maxTilesPerRow {
-				col = startCol
-				currentRow++
+				col = childDepth
+				*currentRow++
 			}
 
-			file.Row = currentRow
+			file.Row = *currentRow
 			file.Col = col
+			file.Depth = childDepth
 			file.X = float64(col) * l.tileWidth
-			file.Y = float64(currentRow) * l.tileHeight
+			file.Y = float64(*currentRow) * l.tileHeight
 			file.Width = l.tileWidth
 			file.Height = l.tileHeight
 
 			col++
 		}
-		currentRow++
+		*currentRow++
 	}
 
-	return currentRow
+	// Layout directories recursively (each gets its own subtree)
+	childDepth := depth + 1
+	if node.Tile == nil {
+		childDepth = 0 // Root level dirs start at column 0
+	}
+
+	for _, dir := range dirs {
+		l.layoutNodeSimple(dir, childDepth, currentRow)
+	}
 }
 
 // Nodes returns all layout nodes for rendering.
