@@ -11,6 +11,7 @@ go_library(
     deps = [
         "//internal/belt",
         "//internal/connection",
+        "//internal/input",
         "//internal/tile",
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
         "@com_github_hajimehoshi_ebiten_v2//ebitenutil",

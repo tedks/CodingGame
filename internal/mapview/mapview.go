@@ -19,6 +19,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"github.com/tedks/CodingGame/internal/belt"
 	"github.com/tedks/CodingGame/internal/connection"
+	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/tile"
 )
 
@@ -70,6 +71,9 @@ type MapView struct {
 	projectPath string
 	width       int
 	height      int
+
+	// Input source for testability
+	inputSource input.InputSource
 
 	// View state
 	viewMode ViewMode // Directory or Dataflow
@@ -130,6 +134,7 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		projectPath:   projectPath,
 		width:         width,
 		height:        height,
+		inputSource:   input.DefaultSource,
 		viewMode:      ViewDirectory, // Default to directory view
 		panX:          0,
 		panY:          0,
@@ -238,11 +243,17 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 	return tiles, nil
 }
 
+// SetInputSource sets the input source for testing.
+// In production, the default input source reads from Ebitengine directly.
+func (m *MapView) SetInputSource(source input.InputSource) {
+	m.inputSource = source
+}
+
 // Update updates the map view state and handles mouse input
 func (m *MapView) Update() {
-	// Handle mouse drag for panning
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
+	// Handle mouse drag for panning (using input source for testability)
+	if m.inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		x, y := m.inputSource.CursorPosition()
 		if !m.dragging {
 			// Start drag
 			m.dragging = true
@@ -285,6 +296,11 @@ func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 
 // drawDirectoryView renders the filesystem hierarchy as a tree layout.
 func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) {
+	// Guard against nil tree layout
+	if m.treeLayout == nil {
+		return
+	}
+
 	// Update tree layout with current tile size and viewport
 	tileSize := m.getTileSize()
 	m.treeLayout.UpdateTileSize(tileSize)
