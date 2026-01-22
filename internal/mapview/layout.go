@@ -118,6 +118,11 @@ func (l *TreeLayout) sortChildren(node *LayoutNode) {
 		ti := node.Children[i].Tile
 		tj := node.Children[j].Tile
 
+		// Defensive nil check - non-nil tiles come first
+		if ti == nil || tj == nil {
+			return ti != nil
+		}
+
 		// Directories come first
 		if ti.IsDirectory() != tj.IsDirectory() {
 			return ti.IsDirectory()
