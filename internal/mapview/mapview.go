@@ -72,8 +72,9 @@ type MapView struct {
 	zoomLevel ZoomLevel
 
 	// Tile system
-	tiles   []*tile.Tile
-	tileMap map[string]*tile.Tile // Fast lookup by path
+	tiles      []*tile.Tile
+	tileMap    map[string]*tile.Tile // Fast lookup by path
+	treeLayout *TreeLayout           // Tree-style layout for directory view
 
 	// Colors
 	bgColor       color.RGBA
@@ -107,6 +108,9 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		tileMap[t.Path()] = t
 	}
 
+	// Create tree layout for directory view
+	treeLayout := NewTreeLayout(tiles, 80) // Default tile size of 80
+
 	return &MapView{
 		projectPath:   projectPath,
 		width:         width,
@@ -117,6 +121,7 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		zoomLevel:     ZoomWorld,
 		tiles:         tiles,
 		tileMap:       tileMap,
+		treeLayout:    treeLayout,
 		bgColor:       color.RGBA{20, 20, 30, 255},
 		gridColor:     color.RGBA{60, 60, 80, 255},
 		fogColor:      color.RGBA{40, 40, 50, 200},
@@ -226,33 +231,32 @@ func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 	}
 }
 
-// drawDirectoryView renders the filesystem hierarchy as a tile grid.
+// drawDirectoryView renders the filesystem hierarchy as a tree layout.
 func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) {
-	// Calculate tile size based on zoom level
+	// Update tree layout with current tile size
 	tileSize := m.getTileSize()
-	tilesPerRow := m.width / int(tileSize)
+	m.treeLayout.UpdateTileSize(tileSize)
 
-	// Draw tiles
-	for i, t := range m.tiles {
-		// Calculate tile position in grid
-		col := i % tilesPerRow
-		row := i / tilesPerRow
+	// Get visible nodes based on current viewport
+	viewX := -m.panX
+	viewY := -m.panY
+	visibleNodes := m.treeLayout.VisibleNodes(viewX, viewY, float64(m.width), float64(m.height))
 
-		// Apply camera pan
-		x := float64(col)*tileSize + m.panX + float64(offsetX)
-		y := float64(row)*tileSize + m.panY + float64(offsetY)
-
-		// Skip if outside visible area (accounting for offset)
-		if x+tileSize < float64(offsetX) || x > float64(offsetX+m.width) ||
-			y+tileSize < float64(offsetY) || y > float64(offsetY+m.height) {
+	// Draw visible tiles using tree layout positions
+	for _, node := range visibleNodes {
+		if node.Tile == nil {
 			continue
 		}
 
-		// Draw tile
-		m.drawTile(screen, t, float32(x), float32(y), float32(tileSize))
+		// Apply camera pan and screen offset
+		x := node.X + m.panX + float64(offsetX)
+		y := node.Y + m.panY + float64(offsetY)
+
+		// Draw the tile at its tree position
+		m.drawTile(screen, node.Tile, float32(x), float32(y), float32(node.Width))
 	}
 
-	// Draw grid lines
+	// Draw grid lines (optional for tree view, can be removed later)
 	m.drawGrid(screen, offsetX, offsetY, tileSize)
 }
 
