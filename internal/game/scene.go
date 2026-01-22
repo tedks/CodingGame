@@ -263,11 +263,11 @@ func (gs *GameScene) Update() (ui.Scene, error) {
 			gs.mapView.Pan(0, PanSpeed)
 		}
 
-		// Handle zoom
-		if gs.inputHandler.IsActionHeld(input.ActionZoomIn) {
+		// Handle zoom (use IsAction for single press, not held)
+		if gs.inputHandler.IsAction(input.ActionZoomIn) {
 			gs.mapView.ZoomIn()
 		}
-		if gs.inputHandler.IsActionHeld(input.ActionZoomOut) {
+		if gs.inputHandler.IsAction(input.ActionZoomOut) {
 			gs.mapView.ZoomOut()
 		}
 	}

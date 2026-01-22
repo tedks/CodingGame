@@ -12,8 +12,10 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"github.com/tedks/CodingGame/internal/belt"
 	"github.com/tedks/CodingGame/internal/connection"
@@ -186,6 +188,14 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 			}
 		}
 
+		// Skip bazel output directories (symlinks to bazel cache)
+		if strings.HasPrefix(baseName, "bazel-") {
+			if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		// Create tile for this file/directory
 		relPath, _ := filepath.Rel(projectPath, path)
 		if relPath == "." {
@@ -331,7 +341,7 @@ func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, t
 	}
 }
 
-// drawTile renders a single tile
+// drawTile renders a single tile with label
 func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
 	// Determine tile color based on fog state
 	var tileColor color.RGBA
@@ -356,6 +366,21 @@ func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float3
 		255,
 	}
 	vector.StrokeRect(screen, x, y, size-TileBorderSpacing, size-TileBorderSpacing, 1, borderColor, false)
+
+	// Draw label (file/directory name)
+	label := t.Name()
+	if t.IsDirectory() {
+		label += "/"
+	}
+	// Truncate label if too long for tile
+	maxChars := int(size) / 6 // ~6 pixels per character
+	if maxChars < 3 {
+		maxChars = 3
+	}
+	if len(label) > maxChars {
+		label = label[:maxChars-2] + ".."
+	}
+	ebitenutil.DebugPrintAt(screen, label, int(x)+2, int(y)+2)
 }
 
 // clampUint8 clamps an int value to the valid uint8 range [0, 255]
