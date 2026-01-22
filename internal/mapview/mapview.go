@@ -10,6 +10,7 @@ package mapview
 
 import (
 	"image/color"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -59,6 +60,11 @@ const (
 	BorderColorBoost  = 20 // Amount to lighten border color
 )
 
+// Layout constants
+const (
+	TopPadding = 1 // Empty rows at top to avoid overlapping debug text
+)
+
 // MapView manages the map visualization with tiles and fog of war
 type MapView struct {
 	projectPath string
@@ -72,6 +78,13 @@ type MapView struct {
 	panX      float64
 	panY      float64
 	zoomLevel ZoomLevel
+
+	// Mouse drag state
+	dragging   bool
+	dragStartX int
+	dragStartY int
+	dragPanX   float64
+	dragPanY   float64
 
 	// Tile system
 	tiles      []*tile.Tile
@@ -225,9 +238,28 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 	return tiles, nil
 }
 
-// Update updates the map view state
+// Update updates the map view state and handles mouse input
 func (m *MapView) Update() {
-	// Future: Handle animations, fog reveal transitions, etc.
+	// Handle mouse drag for panning
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		x, y := ebiten.CursorPosition()
+		if !m.dragging {
+			// Start drag
+			m.dragging = true
+			m.dragStartX = x
+			m.dragStartY = y
+			m.dragPanX = m.panX
+			m.dragPanY = m.panY
+		} else {
+			// Continue drag - update pan based on mouse movement
+			dx := float64(x - m.dragStartX)
+			dy := float64(y - m.dragStartY)
+			m.panX = m.dragPanX + dx
+			m.panY = m.dragPanY + dy
+		}
+	} else {
+		m.dragging = false
+	}
 }
 
 // Draw renders the map view based on current view mode.
@@ -258,9 +290,12 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 	m.treeLayout.UpdateTileSize(tileSize)
 	m.treeLayout.SetViewportWidth(float64(m.width))
 
-	// Get visible nodes based on current viewport
+	// Top padding offset (one empty row to avoid overlapping debug text)
+	topOffset := float64(TopPadding) * tileSize
+
+	// Get visible nodes based on current viewport (account for top padding)
 	viewX := -m.panX
-	viewY := -m.panY
+	viewY := -m.panY - topOffset
 	visibleNodes := m.treeLayout.VisibleNodes(viewX, viewY, float64(m.width), float64(m.height))
 
 	// Draw grouping bars for directories with children
@@ -279,25 +314,25 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 			}
 		}
 
-		// Draw vertical grouping bar to the left of children
-		barX := node.X + m.panX + float64(offsetX) + 4 // Slight offset from tile edge
-		barY1 := minY + m.panY + float64(offsetY) + tileSize
-		barY2 := maxY + m.panY + float64(offsetY) + tileSize
+		// Draw vertical grouping bar to the left of children (with top padding)
+		barX := node.X + m.panX + float64(offsetX) + 4
+		barY1 := minY + m.panY + float64(offsetY) + topOffset + tileSize
+		barY2 := maxY + m.panY + float64(offsetY) + topOffset + tileSize
 
 		if barY2 > barY1 {
 			vector.StrokeLine(screen, float32(barX), float32(barY1), float32(barX), float32(barY2), 2, groupBarColor, false)
 		}
 	}
 
-	// Draw visible tiles using tree layout positions (grid-aligned)
+	// Draw visible tiles using tree layout positions (grid-aligned, with top padding)
 	for _, node := range visibleNodes {
 		if node.Tile == nil {
 			continue
 		}
 
-		// Apply camera pan and screen offset
+		// Apply camera pan, screen offset, and top padding
 		x := node.X + m.panX + float64(offsetX)
-		y := node.Y + m.panY + float64(offsetY)
+		y := node.Y + m.panY + float64(offsetY) + topOffset
 
 		// Draw the tile at its grid-aligned position
 		m.drawTile(screen, node.Tile, float32(x), float32(y), float32(tileSize))
@@ -430,19 +465,52 @@ func clampUint8(v int) uint8 {
 	return uint8(v)
 }
 
-// drawGrid draws the grid lines
+// drawGrid draws the grid lines bounded to the content area
 func (m *MapView) drawGrid(screen *ebiten.Image, offsetX, offsetY int, tileSize float64) {
-	// Draw vertical grid lines (clipped to map area)
-	for x := m.panX + float64(offsetX); x < float64(offsetX+m.width); x += tileSize {
-		if x >= float64(offsetX) {
-			vector.StrokeLine(screen, float32(x), float32(offsetY), float32(x), float32(offsetY+m.height), 1, m.gridColor, false)
+	// Get content bounds from tree layout
+	contentWidth := m.treeLayout.TotalWidth()
+	contentHeight := m.treeLayout.TotalHeight() + float64(TopPadding)*tileSize
+
+	// Calculate where content starts/ends in screen coordinates
+	contentStartX := m.panX + float64(offsetX)
+	contentStartY := m.panY + float64(offsetY)
+	contentEndX := contentStartX + contentWidth
+	contentEndY := contentStartY + contentHeight
+
+	// Clip to viewport
+	viewLeft := float64(offsetX)
+	viewRight := float64(offsetX + m.width)
+	viewTop := float64(offsetY)
+	viewBottom := float64(offsetY + m.height)
+
+	// Draw vertical grid lines (only within content bounds)
+	startX := contentStartX
+	if startX < viewLeft {
+		// Align to grid
+		startX = viewLeft - math.Mod(viewLeft-contentStartX, tileSize)
+	}
+	for x := startX; x <= contentEndX && x < viewRight; x += tileSize {
+		if x >= viewLeft {
+			y1 := math.Max(contentStartY, viewTop)
+			y2 := math.Min(contentEndY, viewBottom)
+			if y2 > y1 {
+				vector.StrokeLine(screen, float32(x), float32(y1), float32(x), float32(y2), 1, m.gridColor, false)
+			}
 		}
 	}
 
-	// Draw horizontal grid lines (clipped to map area)
-	for y := m.panY + float64(offsetY); y < float64(offsetY+m.height); y += tileSize {
-		if y >= float64(offsetY) {
-			vector.StrokeLine(screen, float32(offsetX), float32(y), float32(offsetX+m.width), float32(y), 1, m.gridColor, false)
+	// Draw horizontal grid lines (only within content bounds)
+	startY := contentStartY
+	if startY < viewTop {
+		startY = viewTop - math.Mod(viewTop-contentStartY, tileSize)
+	}
+	for y := startY; y <= contentEndY && y < viewBottom; y += tileSize {
+		if y >= viewTop {
+			x1 := math.Max(contentStartX, viewLeft)
+			x2 := math.Min(contentEndX, viewRight)
+			if x2 > x1 {
+				vector.StrokeLine(screen, float32(x1), float32(y), float32(x2), float32(y), 1, m.gridColor, false)
+			}
 		}
 	}
 }
@@ -467,10 +535,10 @@ func (m *MapView) getTileSize() float64 {
 	}
 }
 
-// Pan moves the camera by the given delta
+// Pan moves the camera by the given delta (inverted so arrow keys move camera, not content)
 func (m *MapView) Pan(dx, dy float64) {
-	m.panX += dx
-	m.panY += dy
+	m.panX -= dx
+	m.panY -= dy
 }
 
 // ZoomIn increases the zoom level
