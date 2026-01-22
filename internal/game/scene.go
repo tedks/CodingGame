@@ -128,18 +128,18 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	promptPanel.SetPosition(0, height-PromptPanelHeight)
 
 	gs := &GameScene{
-		projectPath:        projectPath,
-		width:              width,
-		height:             height,
-		inputHandler:       inputHandler,
-		promptPanel:        promptPanel,
-		mapView:            mapView,
-		resources:          resourceTracker,
-		interceptor:        interceptor,
-		advisorPool:        advisorPool,
-		capabilityRegistry: capRegistry,
-		capabilityRenderer: capRenderer,
-		capabilityWatcher:  capWatcher,
+		projectPath:            projectPath,
+		width:                  width,
+		height:                 height,
+		inputHandler:           inputHandler,
+		promptPanel:            promptPanel,
+		mapView:                mapView,
+		resources:              resourceTracker,
+		interceptor:            interceptor,
+		advisorPool:            advisorPool,
+		capabilityRegistry:     capRegistry,
+		capabilityRenderer:     capRenderer,
+		capabilityWatcher:      capWatcher,
 		productionRegistry:     prodRegistry,
 		productionRenderer:     prodRenderer,
 		productionWatcher:      prodWatcher,
@@ -263,11 +263,11 @@ func (gs *GameScene) Update() (ui.Scene, error) {
 			gs.mapView.Pan(0, PanSpeed)
 		}
 
-		// Handle zoom
-		if gs.inputHandler.IsActionHeld(input.ActionZoomIn) {
+		// Handle zoom (use IsAction for single press, not held)
+		if gs.inputHandler.IsAction(input.ActionZoomIn) {
 			gs.mapView.ZoomIn()
 		}
-		if gs.inputHandler.IsActionHeld(input.ActionZoomOut) {
+		if gs.inputHandler.IsAction(input.ActionZoomOut) {
 			gs.mapView.ZoomOut()
 		}
 	}
