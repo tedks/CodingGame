@@ -153,8 +153,9 @@ func (l *TreeLayout) computeLayout() {
 }
 
 // layoutNodeSimple does a depth-first layout.
-// - Directories are placed at their depth column, one per row
-// - Files within a directory flow horizontally starting at depth+1
+// - Directories WITH children get their own row and expand vertically
+// - Directories WITHOUT children (leaf dirs) flow horizontally with files
+// - Files flow horizontally
 func (l *TreeLayout) layoutNodeSimple(node *LayoutNode, depth int, currentRow *int) {
 	if node == nil {
 		return
@@ -172,51 +173,59 @@ func (l *TreeLayout) layoutNodeSimple(node *LayoutNode, depth int, currentRow *i
 		*currentRow++
 	}
 
-	// Separate directories and files
-	var dirs, files []*LayoutNode
+	// Separate into: directories with children, leaf directories, and files
+	var dirsWithChildren, leafDirs, files []*LayoutNode
 	for _, child := range node.Children {
-		if child.Tile != nil && child.Tile.IsDirectory() {
-			dirs = append(dirs, child)
-		} else if child.Tile != nil {
+		if child.Tile == nil {
+			continue
+		}
+		if child.Tile.IsDirectory() {
+			if len(child.Children) > 0 {
+				dirsWithChildren = append(dirsWithChildren, child)
+			} else {
+				leafDirs = append(leafDirs, child)
+			}
+		} else {
 			files = append(files, child)
 		}
 	}
 
-	// Layout files first - horizontal flow starting at depth+1
-	if len(files) > 0 {
+	// Layout leaf dirs and files together - horizontal flow starting at depth+1
+	leafItems := append(leafDirs, files...)
+	if len(leafItems) > 0 {
 		childDepth := depth + 1
 		if node.Tile == nil {
-			childDepth = 0 // Root level files start at column 0
+			childDepth = 0 // Root level items start at column 0
 		}
 
 		col := childDepth
-		for _, file := range files {
+		for _, item := range leafItems {
 			// Wrap to next row if we exceed viewport
 			if col >= l.maxTilesPerRow {
 				col = childDepth
 				*currentRow++
 			}
 
-			file.Row = *currentRow
-			file.Col = col
-			file.Depth = childDepth
-			file.X = float64(col) * l.tileWidth
-			file.Y = float64(*currentRow) * l.tileHeight
-			file.Width = l.tileWidth
-			file.Height = l.tileHeight
+			item.Row = *currentRow
+			item.Col = col
+			item.Depth = childDepth
+			item.X = float64(col) * l.tileWidth
+			item.Y = float64(*currentRow) * l.tileHeight
+			item.Width = l.tileWidth
+			item.Height = l.tileHeight
 
 			col++
 		}
 		*currentRow++
 	}
 
-	// Layout directories recursively (each gets its own subtree)
+	// Layout directories with children recursively (each gets its own subtree)
 	childDepth := depth + 1
 	if node.Tile == nil {
 		childDepth = 0 // Root level dirs start at column 0
 	}
 
-	for _, dir := range dirs {
+	for _, dir := range dirsWithChildren {
 		l.layoutNodeSimple(dir, childDepth, currentRow)
 	}
 }

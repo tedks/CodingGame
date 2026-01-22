@@ -12,7 +12,6 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -44,10 +43,11 @@ func (v ViewMode) String() string {
 	}
 }
 
-// ZoomLevel represents the current zoom level (1-5)
+// ZoomLevel represents the current zoom level (0-5)
 type ZoomLevel int
 
 const (
+	ZoomOverview ZoomLevel = 0 // Compact overview, small tiles
 	ZoomWorld    ZoomLevel = 1 // Repository root, top-level dirs
 	ZoomRegion   ZoomLevel = 2 // Package/module clusters
 	ZoomCity     ZoomLevel = 3 // Individual packages with buildings
@@ -188,12 +188,22 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 			}
 		}
 
-		// Skip bazel output directories (symlinks to bazel cache)
-		if strings.HasPrefix(baseName, "bazel-") {
-			if info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-				return filepath.SkipDir
+		// Bazel output directories - show them but don't descend into them
+		// Check if this is a symlink first using Lstat
+		if linfo, lerr := os.Lstat(path); lerr == nil && linfo.Mode()&os.ModeSymlink != 0 {
+			bazelDirs := map[string]bool{
+				"bazel-bin":        true,
+				"bazel-out":        true,
+				"bazel-testlogs":   true,
+				"bazel-CodingGame": true,
 			}
-			return nil
+			if bazelDirs[baseName] {
+				// Create tile for the bazel symlink (as directory)
+				relPath, _ := filepath.Rel(projectPath, path)
+				t := tile.New(path, relPath, true)
+				tiles = append(tiles, t)
+				return nil // Don't use SkipDir - just don't add children (symlink won't be walked into)
+			}
 		}
 
 		// Create tile for this file/directory
@@ -252,6 +262,32 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 	viewX := -m.panX
 	viewY := -m.panY
 	visibleNodes := m.treeLayout.VisibleNodes(viewX, viewY, float64(m.width), float64(m.height))
+
+	// Draw grouping bars for directories with children
+	groupBarColor := color.RGBA{80, 100, 120, 180}
+	for _, node := range visibleNodes {
+		if node.Tile == nil || !node.Tile.IsDirectory() || len(node.Children) == 0 {
+			continue
+		}
+
+		// Find the Y extent of this directory's children
+		minY := node.Y
+		maxY := node.Y
+		for _, child := range node.Children {
+			if child.Y > maxY {
+				maxY = child.Y
+			}
+		}
+
+		// Draw vertical grouping bar to the left of children
+		barX := node.X + m.panX + float64(offsetX) + 4 // Slight offset from tile edge
+		barY1 := minY + m.panY + float64(offsetY) + tileSize
+		barY2 := maxY + m.panY + float64(offsetY) + tileSize
+
+		if barY2 > barY1 {
+			vector.StrokeLine(screen, float32(barX), float32(barY1), float32(barX), float32(barY2), 2, groupBarColor, false)
+		}
+	}
 
 	// Draw visible tiles using tree layout positions (grid-aligned)
 	for _, node := range visibleNodes {
@@ -414,18 +450,20 @@ func (m *MapView) drawGrid(screen *ebiten.Image, offsetX, offsetY int, tileSize 
 // getTileSize returns the tile size in pixels for current zoom level
 func (m *MapView) getTileSize() float64 {
 	switch m.zoomLevel {
+	case ZoomOverview:
+		return 40 // Compact overview
 	case ZoomWorld:
-		return 40
+		return 64 // Readable labels
 	case ZoomRegion:
-		return 60
+		return 80
 	case ZoomCity:
-		return 80
-	case ZoomStreet:
 		return 100
-	case ZoomInterior:
+	case ZoomStreet:
 		return 120
+	case ZoomInterior:
+		return 140
 	default:
-		return 80
+		return 64
 	}
 }
 
@@ -444,7 +482,7 @@ func (m *MapView) ZoomIn() {
 
 // ZoomOut decreases the zoom level
 func (m *MapView) ZoomOut() {
-	if m.zoomLevel > ZoomWorld {
+	if m.zoomLevel > ZoomOverview {
 		m.zoomLevel--
 	}
 }
