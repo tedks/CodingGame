@@ -1,0 +1,31 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "production",
+    srcs = [
+        "discovery.go",
+        "registry.go",
+        "renderer.go",
+        "service.go",
+        "watcher.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/production",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
+        "@com_github_hajimehoshi_ebiten_v2//ebitenutil",
+        "@com_github_hajimehoshi_ebiten_v2//vector",
+    ],
+)
+
+go_test(
+    name = "production_test",
+    srcs = [
+        "discovery_test.go",
+        "registry_test.go",
+        "renderer_test.go",
+        "service_test.go",
+        "watcher_test.go",
+    ],
+    embed = [":production"],
+)

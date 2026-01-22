@@ -12,6 +12,7 @@ import (
 	"github.com/tedks/CodingGame/internal/claude"
 	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/mapview"
+	"github.com/tedks/CodingGame/internal/production"
 	"github.com/tedks/CodingGame/internal/resources"
 	"github.com/tedks/CodingGame/internal/ui"
 )
@@ -45,6 +46,11 @@ type GameScene struct {
 	capabilityRegistry *capability.Registry
 	capabilityRenderer *capability.Renderer
 	capabilityWatcher  *capability.Watcher
+
+	// Phase 6 components
+	productionRegistry *production.Registry
+	productionRenderer *production.Renderer
+	productionWatcher  *production.Watcher
 
 	// Current view
 	currentView input.ViewNumber
@@ -92,6 +98,17 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	// Initialize capability watcher
 	capWatcher := capability.NewWatcher(capRegistry)
 
+	// Initialize production registry (Phase 6)
+	prodRegistry := production.NewRegistry()
+	prodRegistry.RegisterDiscoverer(production.NewConfigDiscoverer(projectPath))
+	prodRegistry.Refresh()
+
+	// Initialize production renderer
+	prodRenderer := production.NewRenderer()
+
+	// Initialize production watcher
+	prodWatcher := production.NewWatcher(prodRegistry)
+
 	// Initialize input handler
 	inputHandler := input.NewHandler()
 
@@ -112,6 +129,9 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		capabilityRegistry: capRegistry,
 		capabilityRenderer: capRenderer,
 		capabilityWatcher:  capWatcher,
+		productionRegistry: prodRegistry,
+		productionRenderer: prodRenderer,
+		productionWatcher:  prodWatcher,
 		currentView:        input.ViewMap,
 	}
 
@@ -275,6 +295,13 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 			0, contentY,
 			gs.width, contentHeight,
 		)
+	case input.ViewProduction:
+		gs.productionRenderer.Draw(
+			screen,
+			gs.productionRegistry.GetAll(),
+			0, contentY,
+			gs.width, contentHeight,
+		)
 	default:
 		// Other views not yet implemented - show placeholder
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("View %d not yet implemented", gs.currentView), 20, contentY+20)
@@ -288,7 +315,7 @@ func (gs *GameScene) Draw(screen *ebiten.Image) {
 	focus := gs.inputHandler.Focus().String()
 	viewName := gs.viewName()
 	debugText := fmt.Sprintf(
-		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, 1-5=views",
+		"FPS: %.1f | Mode: %s | Focus: %s | View: %s\nZoom: %d | Pan: (%.0f, %.0f)\nEnter=prompt, hjkl=pan, +/-=zoom, 1-6=views",
 		ebiten.ActualFPS(),
 		mode,
 		focus,
@@ -316,6 +343,8 @@ func (gs *GameScene) viewName() string {
 		return "Tech Tree"
 	case input.ViewMission:
 		return "Missions"
+	case input.ViewProduction:
+		return "Production"
 	default:
 		return "Unknown"
 	}
@@ -326,6 +355,10 @@ func (gs *GameScene) OnEnter() {
 	// Start capability watcher for dynamic updates
 	if gs.capabilityWatcher != nil {
 		gs.capabilityWatcher.Start()
+	}
+	// Start production watcher for dynamic updates
+	if gs.productionWatcher != nil {
+		gs.productionWatcher.Start()
 	}
 }
 
@@ -338,6 +371,9 @@ func (gs *GameScene) OnExit() {
 func (gs *GameScene) Close() error {
 	if gs.capabilityWatcher != nil {
 		gs.capabilityWatcher.Stop()
+	}
+	if gs.productionWatcher != nil {
+		gs.productionWatcher.Stop()
 	}
 	if gs.interceptor != nil {
 		return gs.interceptor.Stop()

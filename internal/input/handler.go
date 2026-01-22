@@ -305,6 +305,8 @@ func (h *Handler) handleBuiltInAction(action Action) {
 		h.SetView(ViewTech)
 	case ActionView5:
 		h.SetView(ViewMission)
+	case ActionView6:
+		h.SetView(ViewProduction)
 	}
 }
 
