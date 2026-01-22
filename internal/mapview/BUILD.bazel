@@ -20,6 +20,9 @@ go_library(
 
 go_test(
     name = "mapview_test",
-    srcs = ["mapview_test.go"],
+    srcs = [
+        "layout_test.go",
+        "mapview_test.go",
+    ],
     embed = [":mapview"],
 )
