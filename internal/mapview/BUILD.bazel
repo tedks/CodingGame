@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "mapview",
-    srcs = ["mapview.go"],
+    srcs = [
+        "layout.go",
+        "mapview.go",
+    ],
     importpath = "github.com/tedks/CodingGame/internal/mapview",
     visibility = ["//visibility:public"],
     deps = [
