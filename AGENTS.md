@@ -30,6 +30,8 @@ Run `bd list --all` for current issue state. Phase completion:
 
 This project uses **bd** (beads) for issue tracking. Run `bd ready` to get started.
 
+**Important**: Beads syncs to the `beads-metadata` branch, NOT your working branch. This keeps issue tracking metadata separate from code changes. The setup script configures this automatically.
+
 ## Git Workflow
 
 **CRITICAL: NEVER push directly to master. Always use branches and pull requests.**
@@ -81,17 +83,19 @@ Even for emergencies, prefer a fast-tracked PR if possible.
 
 ## First-Time Setup
 
-If beads is not yet installed on your machine, run the setup script:
+Run the setup script to install all dependencies:
 
 ```bash
-./scripts/setup-beads.sh
+./scripts/setup.sh              # Full setup (Nix + Bazel + beads)
+./scripts/setup.sh --beads-only # Just beads (if Nix/Bazel already installed)
+./scripts/setup.sh --verify     # Check existing setup
 ```
 
-This script will:
-1. Install the `bd` CLI if not already installed
-2. Initialize beads in the repository (if needed)
-3. Install git hooks for automatic sync
-4. Set up Claude Code integration (if detected)
+The script will:
+1. Install Nix package manager with flakes support
+2. Install direnv for automatic environment loading (optional)
+3. Verify Bazel and Go are available
+4. Install and configure beads (syncs to `beads-metadata` branch)
 
 The script is idempotent - safe to run multiple times.
 

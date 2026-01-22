@@ -451,13 +451,19 @@ install_beads() {
         fi
     fi
 
-    # Initialize beads if needed
+    # Initialize beads if needed (always use beads-metadata branch for sync)
     if [[ -d ".beads" ]]; then
         success "beads already initialized in this repository"
+        # Ensure sync branch is configured correctly
+        if ! bd config get sync.branch 2>/dev/null | grep -q "beads-metadata"; then
+            info "Reconfiguring beads to use beads-metadata branch..."
+            bd init --branch beads-metadata --force
+            success "beads reconfigured to sync to beads-metadata branch"
+        fi
     else
-        info "Initializing beads..."
-        if bd init; then
-            success "beads initialized"
+        info "Initializing beads with beads-metadata sync branch..."
+        if bd init --branch beads-metadata; then
+            success "beads initialized (syncs to beads-metadata branch)"
         else
             error "Failed to initialize beads"
         fi
