@@ -233,16 +233,17 @@ func (m *MapView) Draw(screen *ebiten.Image, offsetX, offsetY int) {
 
 // drawDirectoryView renders the filesystem hierarchy as a tree layout.
 func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) {
-	// Update tree layout with current tile size
+	// Update tree layout with current tile size and viewport
 	tileSize := m.getTileSize()
 	m.treeLayout.UpdateTileSize(tileSize)
+	m.treeLayout.SetViewportWidth(float64(m.width))
 
 	// Get visible nodes based on current viewport
 	viewX := -m.panX
 	viewY := -m.panY
 	visibleNodes := m.treeLayout.VisibleNodes(viewX, viewY, float64(m.width), float64(m.height))
 
-	// Draw visible tiles using tree layout positions
+	// Draw visible tiles using tree layout positions (grid-aligned)
 	for _, node := range visibleNodes {
 		if node.Tile == nil {
 			continue
@@ -252,11 +253,11 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 		x := node.X + m.panX + float64(offsetX)
 		y := node.Y + m.panY + float64(offsetY)
 
-		// Draw the tile at its tree position
-		m.drawTile(screen, node.Tile, float32(x), float32(y), float32(node.Width))
+		// Draw the tile at its grid-aligned position
+		m.drawTile(screen, node.Tile, float32(x), float32(y), float32(tileSize))
 	}
 
-	// Draw grid lines (optional for tree view, can be removed later)
+	// Draw grid lines (aligned with tile positions)
 	m.drawGrid(screen, offsetX, offsetY, tileSize)
 }
 

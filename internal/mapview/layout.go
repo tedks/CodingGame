@@ -32,22 +32,26 @@ type TreeLayout struct {
 	allNodes []*LayoutNode          // flat list for iteration
 
 	// Layout parameters
-	tileWidth      float64
-	tileHeight     float64
-	indentWidth    float64 // Pixels per depth level
-	verticalGap    float64 // Gap between directory groups
-	horizontalGap  float64 // Gap between tiles horizontally
+	tileWidth       float64
+	tileHeight      float64
+	indentWidth     float64 // Pixels per depth level
+	verticalGap     float64 // Gap between directory groups
+	horizontalGap   float64 // Gap between tiles horizontally
+	maxTilesPerRow  int     // Max tiles per row for horizontal layout
+	viewportWidth   float64 // Current viewport width for wrapping
 }
 
 // NewTreeLayout creates a new tree layout from tiles.
 func NewTreeLayout(tiles []*tile.Tile, tileSize float64) *TreeLayout {
 	layout := &TreeLayout{
-		nodeMap:       make(map[string]*LayoutNode),
-		tileWidth:     tileSize,
-		tileHeight:    tileSize * 0.6, // Shorter height for tree view
-		indentWidth:   tileSize * 0.3, // Indent per depth level
-		verticalGap:   tileSize * 0.2, // Gap between directory groups
-		horizontalGap: tileSize * 0.1,
+		nodeMap:        make(map[string]*LayoutNode),
+		tileWidth:      tileSize,
+		tileHeight:     tileSize,         // Square tiles for grid alignment
+		indentWidth:    tileSize,         // Indent = 1 tile width
+		verticalGap:    0,                // No extra gaps (grid aligned)
+		horizontalGap:  0,                // No extra gaps (grid aligned)
+		maxTilesPerRow: 10,               // Default max tiles per row
+		viewportWidth:  tileSize * 10,    // Default viewport
 	}
 
 	layout.buildTree(tiles)
@@ -129,54 +133,79 @@ func (l *TreeLayout) sortChildren(node *LayoutNode) {
 	}
 }
 
-// computeLayout calculates X, Y positions for all nodes.
+// computeLayout calculates X, Y positions for all nodes using grid-aligned horizontal flow.
 func (l *TreeLayout) computeLayout() {
 	if l.root == nil {
 		return
 	}
 
+	// Calculate how many tiles fit per row based on viewport
+	tilesPerRow := int(l.viewportWidth / l.tileWidth)
+	if tilesPerRow < 3 {
+		tilesPerRow = 3
+	}
+	l.maxTilesPerRow = tilesPerRow
+
 	currentRow := 0
-	l.layoutNode(l.root, &currentRow, false)
+	l.layoutChildren(l.root.Children, 0, &currentRow)
 }
 
-// layoutNode recursively lays out a node and its children.
-// Returns the row after this subtree.
-func (l *TreeLayout) layoutNode(node *LayoutNode, currentRow *int, addGapBefore bool) {
-	if node == nil {
+// layoutChildren lays out a slice of children at a given depth.
+// Children are placed horizontally, wrapping to new rows as needed.
+// Directories get their own row, files flow horizontally.
+func (l *TreeLayout) layoutChildren(children []*LayoutNode, depth int, currentRow *int) {
+	if len(children) == 0 {
 		return
 	}
 
-	// Skip the virtual root
-	if node.Tile != nil {
-		// Add gap before directory groups (except first)
-		if addGapBefore && node.Tile.IsDirectory() {
-			*currentRow++
+	// Separate directories and files
+	var dirs, files []*LayoutNode
+	for _, child := range children {
+		if child.Tile.IsDirectory() {
+			dirs = append(dirs, child)
+		} else {
+			files = append(files, child)
 		}
+	}
 
-		node.Row = *currentRow
-		node.Col = node.Depth
-
-		// Calculate pixel position
-		node.X = float64(node.Depth) * l.indentWidth
-		node.Y = float64(*currentRow) * (l.tileHeight + l.horizontalGap)
-		node.Width = l.tileWidth
-		node.Height = l.tileHeight
-
+	// Layout directories first - each directory on its own row with its contents below
+	for _, dir := range dirs {
+		// Place directory tile
+		dir.Row = *currentRow
+		dir.Col = depth
+		dir.X = float64(depth) * l.tileWidth
+		dir.Y = float64(*currentRow) * l.tileHeight
+		dir.Width = l.tileWidth
+		dir.Height = l.tileHeight
+		dir.Depth = depth
 		*currentRow++
+
+		// Layout directory's children recursively
+		l.layoutChildren(dir.Children, depth+1, currentRow)
 	}
 
-	// Layout children
-	prevWasDir := false
-	for i, child := range node.Children {
-		// Add gap before directory if previous was a file
-		addGap := i > 0 && child.Tile.IsDirectory() && !prevWasDir
-		l.layoutNode(child, currentRow, addGap)
-		prevWasDir = child.Tile.IsDirectory()
-	}
+	// Layout files horizontally at current depth
+	if len(files) > 0 {
+		col := depth
+		maxCol := l.maxTilesPerRow
+		for _, file := range files {
+			// Wrap to next row if we exceed max columns
+			if col >= maxCol {
+				col = depth
+				*currentRow++
+			}
 
-	// Add gap after directory contents
-	if node.Tile != nil && node.Tile.IsDirectory() && len(node.Children) > 0 {
-		// Small gap after directory contents
+			file.Row = *currentRow
+			file.Col = col
+			file.X = float64(col) * l.tileWidth
+			file.Y = float64(*currentRow) * l.tileHeight
+			file.Width = l.tileWidth
+			file.Height = l.tileHeight
+			file.Depth = depth
+
+			col++
+		}
+		*currentRow++
 	}
 }
 
@@ -203,28 +232,32 @@ func (l *TreeLayout) TotalHeight() float64 {
 			maxRow = node.Row
 		}
 	}
-	return float64(maxRow+1) * (l.tileHeight + l.horizontalGap)
+	return float64(maxRow+1) * l.tileHeight
 }
 
 // TotalWidth returns the total width needed for the layout.
 func (l *TreeLayout) TotalWidth() float64 {
-	maxDepth := 0
+	maxCol := 0
 	for _, node := range l.allNodes {
-		if node.Depth > maxDepth {
-			maxDepth = node.Depth
+		if node.Col > maxCol {
+			maxCol = node.Col
 		}
 	}
-	return float64(maxDepth)*l.indentWidth + l.tileWidth
+	return float64(maxCol+1) * l.tileWidth
 }
 
 // UpdateTileSize recalculates layout with a new tile size.
 func (l *TreeLayout) UpdateTileSize(tileSize float64) {
 	l.tileWidth = tileSize
-	l.tileHeight = tileSize * 0.6
-	l.indentWidth = tileSize * 0.3
-	l.verticalGap = tileSize * 0.2
-	l.horizontalGap = tileSize * 0.1
+	l.tileHeight = tileSize
+	l.indentWidth = tileSize
 
+	l.computeLayout()
+}
+
+// SetViewportWidth updates the viewport width for calculating wrapping.
+func (l *TreeLayout) SetViewportWidth(width float64) {
+	l.viewportWidth = width
 	l.computeLayout()
 }
 
@@ -237,9 +270,9 @@ func (l *TreeLayout) VisibleNodes(viewX, viewY, viewWidth, viewHeight float64) [
 			continue
 		}
 
-		// Check if node intersects viewport
-		nodeRight := node.X + node.Width
-		nodeBottom := node.Y + node.Height
+		// Check if node intersects viewport (grid-aligned check)
+		nodeRight := node.X + l.tileWidth
+		nodeBottom := node.Y + l.tileHeight
 
 		if nodeRight >= viewX && node.X <= viewX+viewWidth &&
 			nodeBottom >= viewY && node.Y <= viewY+viewHeight {
