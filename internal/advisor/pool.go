@@ -1,9 +1,12 @@
 package advisor
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/tedks/CodingGame/internal/harness"
 )
 
 // Pool manages a collection of advisors
@@ -17,6 +20,11 @@ type Pool struct {
 	// Background processing
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	// Harness integration
+	registry    *harness.Registry // Harness registry for creating advisor harnesses
+	mainHarness string            // Name of the main project harness (default for advisors)
+	workingDir  string            // Project working directory
 }
 
 // PoolListener receives notifications about pool events
@@ -377,4 +385,143 @@ func (p *Pool) Clear() {
 			go listener.OnAdvisorRemoved(id)
 		}
 	}
+}
+
+// SetHarnessRegistry sets the harness registry for creating advisor harnesses.
+func (p *Pool) SetHarnessRegistry(registry *harness.Registry) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.registry = registry
+}
+
+// SetMainHarness sets the name of the main project harness.
+// This is used as the default harness for advisors that don't specify their own.
+func (p *Pool) SetMainHarness(harnessName string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.mainHarness = harnessName
+}
+
+// SetWorkingDir sets the project working directory for advisor execution.
+func (p *Pool) SetWorkingDir(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.workingDir = dir
+}
+
+// RunAdvisor executes an advisor analysis using the appropriate harness.
+// It creates a new harness instance, sends the advisor's prompt with file context,
+// and collects insights from the response.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - advisor: The advisor to run
+//   - files: List of file paths to include as context
+//
+// Returns an error if the harness cannot be created or execution fails.
+func (p *Pool) RunAdvisor(ctx context.Context, advisor *Advisor, files []string) error {
+	p.mu.RLock()
+	registry := p.registry
+	mainHarness := p.mainHarness
+	workingDir := p.workingDir
+	p.mu.RUnlock()
+
+	if registry == nil {
+		return fmt.Errorf("harness registry not configured")
+	}
+
+	// Determine which harness to use
+	harnessName := advisor.Config().HarnessName
+	if harnessName == "" {
+		harnessName = mainHarness
+	}
+	if harnessName == "" {
+		return fmt.Errorf("no harness configured for advisor %q", advisor.ID())
+	}
+
+	// Create harness instance
+	h, err := registry.Create(harnessName)
+	if err != nil {
+		return fmt.Errorf("creating harness for advisor %q: %w", advisor.ID(), err)
+	}
+
+	// Configure harness
+	config := harness.NewConfig(workingDir).
+		WithModel(advisor.Config().HarnessModel).
+		WithSystemPrompt(advisor.Config().SystemPrompt).
+		ForAdvisor(advisor.ID())
+
+	// Start harness
+	if err := h.Start(ctx, config); err != nil {
+		return fmt.Errorf("starting harness for advisor %q: %w", advisor.ID(), err)
+	}
+	defer h.Stop()
+
+	// Mark advisor as analyzing
+	advisor.StartAnalysis()
+	startTime := time.Now()
+
+	// Build and send analysis prompt
+	prompt := p.buildAdvisorPrompt(advisor, files)
+	if err := h.SendPrompt(prompt); err != nil {
+		advisor.CompleteAnalysis(time.Since(startTime), 0, 0, err)
+		return fmt.Errorf("sending prompt to advisor %q: %w", advisor.ID(), err)
+	}
+
+	// Collect events and process insights
+	var tokensIn, tokensOut int64
+	for event := range h.Events() {
+		switch event.Type {
+		case harness.EventTurnComplete:
+			// Analysis complete
+			advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, nil)
+			return nil
+
+		case harness.EventText:
+			// Could extract insights from text analysis
+			// For now, just track that we got output
+
+		case harness.EventError:
+			advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, event.Error)
+			return event.Error
+
+		default:
+			// Track token usage if available in raw data
+			if tin, ok := event.Raw["tokens_in"].(float64); ok {
+				tokensIn = int64(tin)
+			}
+			if tout, ok := event.Raw["tokens_out"].(float64); ok {
+				tokensOut = int64(tout)
+			}
+		}
+	}
+
+	// Events channel closed without turn complete
+	advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, nil)
+	return nil
+}
+
+// buildAdvisorPrompt constructs the analysis prompt for an advisor.
+func (p *Pool) buildAdvisorPrompt(advisor *Advisor, files []string) string {
+	// Build a prompt that includes the system context and file list
+	prompt := fmt.Sprintf("Analyze the following files for %s insights:\n\n", advisor.Name())
+
+	for _, file := range files {
+		prompt += fmt.Sprintf("- %s\n", file)
+	}
+
+	prompt += "\nProvide your analysis and any recommendations."
+	return prompt
+}
+
+// RunAdvisorAsync executes an advisor analysis asynchronously.
+// The advisor's state will be updated as the analysis progresses.
+func (p *Pool) RunAdvisorAsync(ctx context.Context, advisor *Advisor, files []string) {
+	go func() {
+		err := p.RunAdvisor(ctx, advisor, files)
+		if err != nil {
+			// Error already recorded in advisor state via CompleteAnalysis
+			_ = err
+		}
+	}()
 }
