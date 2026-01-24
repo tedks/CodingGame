@@ -110,6 +110,15 @@ func TestSystemTests(t *testing.T) {
 		t.Run("TextDisplaysCorrectly", testPromptTextDisplay)
 		t.Run("ClearAfterSubmit", testPromptClearAfterSubmit)
 	})
+
+	// MapView mouse interaction tests
+	t.Run("MapView", func(t *testing.T) {
+		t.Run("SingleClickSelectsTile", testMapViewSingleClickSelectsTile)
+		t.Run("DoubleClickTriggersCallback", testMapViewDoubleClickTriggersCallback)
+		t.Run("DoubleClickUpdatesSelection", testMapViewDoubleClickUpdatesSelection)
+		t.Run("DragVsClickThreshold", testMapViewDragVsClickThreshold)
+		t.Run("ClickInBorderGap", testMapViewClickInBorderGap)
+	})
 }
 
 // Test helper types and functions

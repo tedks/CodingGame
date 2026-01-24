@@ -116,6 +116,20 @@ func (t *TestInputSource) QueueMouseClick(button ebiten.MouseButton) {
 	t.QueueEvents(InputEvent{Type: MouseButtonPress, Button: button})
 }
 
+// QueueMouseRelease queues a mouse button release.
+func (t *TestInputSource) QueueMouseRelease(button ebiten.MouseButton) {
+	t.QueueEvents(InputEvent{Type: MouseButtonRelease, Button: button})
+}
+
+// QueueMouseClickAndRelease queues a complete mouse click (press then release).
+// This simulates a full click cycle that MapView needs to detect tile selection.
+func (t *TestInputSource) QueueMouseClickAndRelease(button ebiten.MouseButton) {
+	t.QueueEvents(
+		InputEvent{Type: MouseButtonPress, Button: button},
+		InputEvent{Type: MouseButtonRelease, Button: button},
+	)
+}
+
 // QueueMouseWheel queues a mouse wheel scroll.
 func (t *TestInputSource) QueueMouseWheel(xoff, yoff float64) {
 	t.QueueEvents(InputEvent{Type: MouseWheel, WheelX: xoff, WheelY: yoff})

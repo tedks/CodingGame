@@ -6,6 +6,9 @@
 // The map supports 5 zoom levels from World (repository root) to Interior (file contents).
 // Navigation is keyboard-driven with vim-style keys (hjkl) or arrow keys for panning,
 // and +/- keys for zooming.
+//
+// Thread Safety: MapView is NOT thread-safe. All methods must be called from
+// a single goroutine (typically the main game loop).
 package mapview
 
 import (
@@ -61,6 +64,10 @@ const (
 	// Rendering constants
 	TileBorderSpacing = 2  // Pixels between tiles
 	BorderColorBoost  = 20 // Amount to lighten border color
+
+	// Text rendering constants
+	CharWidth  = 6  // Approximate pixels per character for label truncation
+	LineHeight = 14 // Pixels between text lines
 )
 
 // Layout constants
@@ -320,6 +327,8 @@ func (m *MapView) handleTileClick(screenX, screenY int, doubleClickMs int) {
 	// Check for double-click (same position, within time window)
 	if clickedTile != nil {
 		timeSinceLastClick := now.Sub(m.lastClickTime).Milliseconds()
+		// Manhattan distance creates a diamond-shaped tolerance zone, which is more
+		// forgiving for diagonal cursor movements during quick double-clicks.
 		distFromLastClick := abs(screenX-m.lastClickX) + abs(screenY-m.lastClickY)
 
 		if timeSinceLastClick < int64(doubleClickMs) && distFromLastClick < DoubleClickDistMax {
@@ -339,7 +348,8 @@ func (m *MapView) handleTileClick(screenX, screenY int, doubleClickMs int) {
 	}
 
 	if isDoubleClick {
-		// Double-click: open file
+		// Double-click: select tile and open file
+		m.selectedTile = clickedTile
 		if m.onTileDoubleClick != nil {
 			m.onTileDoubleClick(clickedTile)
 		}
@@ -374,9 +384,10 @@ func (m *MapView) TileAtScreenPos(screenX, screenY int) *tile.Tile {
 			continue
 		}
 
-		// Check if click is within this tile's bounds
-		if worldX >= node.X && worldX < node.X+tileSize &&
-			worldY >= node.Y && worldY < node.Y+tileSize {
+		// Check if click is within this tile's bounds (excluding border spacing)
+		effectiveSize := tileSize - TileBorderSpacing
+		if worldX >= node.X && worldX < node.X+effectiveSize &&
+			worldY >= node.Y && worldY < node.Y+effectiveSize {
 			return node.Tile
 		}
 	}
@@ -576,6 +587,10 @@ func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, t
 
 // drawTile renders a single tile with label and progressive metadata based on zoom level
 func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
+	if t == nil {
+		return
+	}
+
 	// Determine tile color based on file type (always use full color)
 	var tileColor color.RGBA
 	if t.IsDirectory() {
@@ -616,10 +631,7 @@ func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float3
 
 // drawTileLabels draws the tile name and progressive metadata
 func (m *MapView) drawTileLabels(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
-	const charWidth = 6   // ~6 pixels per character
-	const lineHeight = 14 // pixels between lines
-
-	maxChars := int(size) / charWidth
+	maxChars := int(size) / CharWidth
 	if maxChars < 3 {
 		maxChars = 3
 	}
@@ -640,8 +652,8 @@ func (m *MapView) drawTileLabels(screen *ebiten.Image, t *tile.Tile, x, y, size 
 		if len(sizeLabel) > maxChars {
 			sizeLabel = sizeLabel[:maxChars]
 		}
-		yPos := int(y) + 2 + lineHeight
-		if yPos < int(y+size)-lineHeight {
+		yPos := int(y) + 2 + LineHeight
+		if yPos < int(y+size)-LineHeight {
 			ebitenutil.DebugPrintAt(screen, sizeLabel, int(x)+2, yPos)
 		}
 	}
@@ -658,8 +670,8 @@ func (m *MapView) drawTileLabels(screen *ebiten.Image, t *tile.Tile, x, y, size 
 		if modLabel != "" && len(modLabel) > maxChars {
 			modLabel = modLabel[:maxChars]
 		}
-		yPos := int(y) + 2 + lineHeight*2
-		if modLabel != "" && yPos < int(y+size)-lineHeight {
+		yPos := int(y) + 2 + LineHeight*2
+		if modLabel != "" && yPos < int(y+size)-LineHeight {
 			ebitenutil.DebugPrintAt(screen, modLabel, int(x)+2, yPos)
 		}
 	}
@@ -674,8 +686,8 @@ func (m *MapView) drawTileLabels(screen *ebiten.Image, t *tile.Tile, x, y, size 
 		if activityLabel != "" && len(activityLabel) > maxChars {
 			activityLabel = activityLabel[:maxChars]
 		}
-		yPos := int(y) + 2 + lineHeight*3
-		if activityLabel != "" && yPos < int(y+size)-lineHeight {
+		yPos := int(y) + 2 + LineHeight*3
+		if activityLabel != "" && yPos < int(y+size)-LineHeight {
 			ebitenutil.DebugPrintAt(screen, activityLabel, int(x)+2, yPos)
 		}
 	}

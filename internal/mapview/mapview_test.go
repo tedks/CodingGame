@@ -323,6 +323,12 @@ func TestConstants(t *testing.T) {
 	if BorderColorBoost != 20 {
 		t.Errorf("expected BorderColorBoost 20, got %d", BorderColorBoost)
 	}
+	if CharWidth != 6 {
+		t.Errorf("expected CharWidth 6, got %d", CharWidth)
+	}
+	if LineHeight != 14 {
+		t.Errorf("expected LineHeight 14, got %d", LineHeight)
+	}
 }
 
 func TestViewMode(t *testing.T) {
@@ -637,8 +643,8 @@ func TestAdjustPanForZoom(t *testing.T) {
 			initialPanY:  0,
 			oldSize:      64,
 			newSize:      128,
-			expectedPanX: -200, // 0 * 2 + 400 * (1-2) = -400 for width 800
-			expectedPanY: -150, // 0 * 2 + 300 * (1-2) = -300 for height 600
+			expectedPanX: -400, // 0 * 2 + 400 * (1-2) = -400 for width 800
+			expectedPanY: -300, // 0 * 2 + 300 * (1-2) = -300 for height 600
 		},
 		{
 			name:         "zoom out 0.5x",
