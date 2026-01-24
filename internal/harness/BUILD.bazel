@@ -17,6 +17,7 @@ go_test(
     srcs = [
         "config_test.go",
         "event_test.go",
+        "lifecycle_test.go",
         "registry_test.go",
     ],
     embed = [":harness"],
