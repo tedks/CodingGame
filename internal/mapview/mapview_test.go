@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/tedks/CodingGame/internal/tile"
 )
 
 func TestNew(t *testing.T) {
@@ -320,6 +323,12 @@ func TestConstants(t *testing.T) {
 	if BorderColorBoost != 20 {
 		t.Errorf("expected BorderColorBoost 20, got %d", BorderColorBoost)
 	}
+	if CharWidth != 6 {
+		t.Errorf("expected CharWidth 6, got %d", CharWidth)
+	}
+	if LineHeight != 14 {
+		t.Errorf("expected LineHeight 14, got %d", LineHeight)
+	}
 }
 
 func TestViewMode(t *testing.T) {
@@ -406,5 +415,280 @@ func TestViewModeString(t *testing.T) {
 				t.Errorf("ViewMode(%d).String() = %q, want %q", tt.mode, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestFormatSize(t *testing.T) {
+	tests := []struct {
+		bytes    int64
+		expected string
+	}{
+		{0, "0B"},
+		{100, "100B"},
+		{1023, "1023B"},
+		{1024, "1.0K"},
+		{1536, "1.5K"},
+		{10240, "10.0K"},
+		{1048576, "1.0M"},    // 1 MB
+		{1572864, "1.5M"},    // 1.5 MB
+		{1073741824, "1.0G"}, // 1 GB
+		{1610612736, "1.5G"}, // 1.5 GB
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := formatSize(tt.bytes)
+			if result != tt.expected {
+				t.Errorf("formatSize(%d) = %q, want %q", tt.bytes, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatRelativeTime(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name     string
+		time     time.Time
+		expected string
+	}{
+		{"zero time", time.Time{}, ""},
+		{"just now", now.Add(-30 * time.Second), "now"},
+		{"minutes ago", now.Add(-5 * time.Minute), "5m"},
+		{"hours ago", now.Add(-3 * time.Hour), "3h"},
+		{"days ago", now.Add(-2 * 24 * time.Hour), "2d"},
+		{"weeks ago", now.Add(-14 * 24 * time.Hour), "2w"},
+		{"months ago", now.Add(-45 * 24 * time.Hour), "1mo"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatRelativeTime(tt.time)
+			if result != tt.expected {
+				t.Errorf("formatRelativeTime() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSelectedTile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test file
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	// Initially no selection
+	if mapView.SelectedTile() != nil {
+		t.Error("expected nil selected tile initially")
+	}
+
+	// Get the tile from the map
+	testTile, exists := mapView.tileMap[testFile]
+	if !exists {
+		t.Fatal("expected test tile to exist")
+	}
+
+	// Set selection
+	mapView.SetSelectedTile(testTile)
+	if mapView.SelectedTile() != testTile {
+		t.Error("expected selected tile to match set tile")
+	}
+
+	// Clear selection
+	mapView.SetSelectedTile(nil)
+	if mapView.SelectedTile() != nil {
+		t.Error("expected nil selected tile after clearing")
+	}
+}
+
+func TestTileSelectionCallbacks(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test file
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	// Track callback invocations
+	var selectCalled bool
+	var doubleClickCalled bool
+
+	mapView.SetOnTileSelect(func(t *tile.Tile) {
+		selectCalled = true
+	})
+	mapView.SetOnTileDoubleClick(func(t *tile.Tile) {
+		doubleClickCalled = true
+	})
+
+	// Get the tile
+	testTile, _ := mapView.tileMap[testFile]
+
+	// Simulate a single click (sets selectedTile and calls callback)
+	mapView.selectedTile = testTile
+	if mapView.onTileSelect != nil {
+		mapView.onTileSelect(testTile)
+	}
+
+	if !selectCalled {
+		t.Error("expected select callback to be called")
+	}
+
+	// Simulate a double click
+	if mapView.onTileDoubleClick != nil {
+		mapView.onTileDoubleClick(testTile)
+	}
+
+	if !doubleClickCalled {
+		t.Error("expected double-click callback to be called")
+	}
+}
+
+func TestZoomCentering(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	// Set initial pan position to test centering behavior
+	initialPanX := -100.0
+	initialPanY := -50.0
+	mapView.panX = initialPanX
+	mapView.panY = initialPanY
+
+	// Record center of screen before zoom
+	centerX := float64(mapView.width) / 2
+	centerY := float64(mapView.height) / 2
+
+	// Calculate world coordinate of center before zoom
+	oldSize := mapView.getTileSize()
+	worldCenterXBefore := (centerX - mapView.panX) / oldSize
+	worldCenterYBefore := (centerY - mapView.panY) / oldSize
+
+	// Zoom in
+	mapView.ZoomIn()
+
+	// Calculate world coordinate of center after zoom
+	newSize := mapView.getTileSize()
+	worldCenterXAfter := (centerX - mapView.panX) / newSize
+	worldCenterYAfter := (centerY - mapView.panY) / newSize
+
+	// The tile coordinate at center should be approximately the same
+	// Allow small floating point tolerance
+	tolerance := 0.01
+	if diff := worldCenterXBefore - worldCenterXAfter; diff > tolerance || diff < -tolerance {
+		t.Errorf("center X shifted: before=%.4f, after=%.4f, diff=%.4f", worldCenterXBefore, worldCenterXAfter, diff)
+	}
+	if diff := worldCenterYBefore - worldCenterYAfter; diff > tolerance || diff < -tolerance {
+		t.Errorf("center Y shifted: before=%.4f, after=%.4f, diff=%.4f", worldCenterYBefore, worldCenterYAfter, diff)
+	}
+}
+
+func TestAdjustPanForZoom(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	// Test that adjustPanForZoom preserves the center point correctly
+	// Formula: panX' = panX * ratio + centerX * (1 - ratio)
+	// Where ratio = newSize / oldSize
+
+	tests := []struct {
+		name         string
+		initialPanX  float64
+		initialPanY  float64
+		oldSize      float64
+		newSize      float64
+		expectedPanX float64
+		expectedPanY float64
+	}{
+		{
+			name:         "zoom in 2x",
+			initialPanX:  0,
+			initialPanY:  0,
+			oldSize:      64,
+			newSize:      128,
+			expectedPanX: -400, // 0 * 2 + 400 * (1-2) = -400 for width 800
+			expectedPanY: -300, // 0 * 2 + 300 * (1-2) = -300 for height 600
+		},
+		{
+			name:         "zoom out 0.5x",
+			initialPanX:  -200,
+			initialPanY:  -150,
+			oldSize:      128,
+			newSize:      64,
+			expectedPanX: 100, // -200 * 0.5 + 400 * 0.5 = -100 + 200 = 100
+			expectedPanY: 75,  // -150 * 0.5 + 300 * 0.5 = -75 + 150 = 75
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mapView.panX = tt.initialPanX
+			mapView.panY = tt.initialPanY
+			mapView.adjustPanForZoom(tt.oldSize, tt.newSize)
+
+			if mapView.panX != tt.expectedPanX {
+				t.Errorf("panX = %.2f, want %.2f", mapView.panX, tt.expectedPanX)
+			}
+			if mapView.panY != tt.expectedPanY {
+				t.Errorf("panY = %.2f, want %.2f", mapView.panY, tt.expectedPanY)
+			}
+		})
+	}
+}
+
+func TestAbs(t *testing.T) {
+	tests := []struct {
+		input    int
+		expected int
+	}{
+		{0, 0},
+		{5, 5},
+		{-5, 5},
+		{-100, 100},
+		{100, 100},
+	}
+
+	for _, tt := range tests {
+		result := abs(tt.input)
+		if result != tt.expected {
+			t.Errorf("abs(%d) = %d, want %d", tt.input, result, tt.expected)
+		}
 	}
 }

@@ -5,6 +5,7 @@ go_test(
     srcs = [
         "focus_test.go",
         "main_test.go",
+        "mapview_mouse_test.go",
         "menu_test.go",
         "modes_test.go",
         "navigation_test.go",
@@ -14,7 +15,9 @@ go_test(
     ],
     deps = [
         "//internal/input",
+        "//internal/mapview",
         "//internal/testutil",
+        "//internal/tile",
         "//internal/ui",
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
     ],
