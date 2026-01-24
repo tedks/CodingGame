@@ -527,8 +527,19 @@ func (p *Pool) buildAdvisorPrompt(advisor *Advisor, files []string) string {
 
 // RunAdvisorAsync executes an advisor analysis asynchronously.
 // The advisor's state will be updated as the analysis progresses.
+// The goroutine is tracked by the Pool's WaitGroup, so Pool.Stop() will
+// wait for all async advisors to complete.
 func (p *Pool) RunAdvisorAsync(ctx context.Context, advisor *Advisor, files []string) {
+	p.mu.RLock()
+	if !p.running {
+		p.mu.RUnlock()
+		return
+	}
+	p.wg.Add(1)
+	p.mu.RUnlock()
+
 	go func() {
+		defer p.wg.Done()
 		err := p.RunAdvisor(ctx, advisor, files)
 		if err != nil {
 			// Error already recorded in advisor state via CompleteAnalysis

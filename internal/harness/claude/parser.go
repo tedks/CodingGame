@@ -16,6 +16,9 @@ type Parser struct {
 	// DebugWriter, if set, receives debug output for parse failures and
 	// unrecognized event types. Useful for troubleshooting Claude output changes.
 	DebugWriter io.Writer
+	// EmitParseWarnings, if true, emits EventWarning events for lines that
+	// fail to parse as JSON. Useful for diagnosing integration issues.
+	EmitParseWarnings bool
 }
 
 // NewParser creates a new Claude output parser
@@ -43,6 +46,12 @@ func (p *Parser) ParseLine(line []byte) {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(line, &raw); err != nil {
 		p.debugf("JSON parse error: %v (line: %s)", err, string(line))
+		if p.EmitParseWarnings {
+			p.events <- harness.NewEvent(harness.EventWarning).
+				WithText(fmt.Sprintf("Failed to parse JSON: %s", string(line))).
+				WithSource("claude-code-parser").
+				Build()
+		}
 		return
 	}
 
