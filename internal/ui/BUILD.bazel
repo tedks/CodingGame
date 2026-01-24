@@ -11,6 +11,7 @@ go_library(
     importpath = "github.com/tedks/CodingGame/internal/ui",
     visibility = ["//:__subpackages__"],
     deps = [
+        "//internal/harness",
         "//internal/input",
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
         "@com_github_hajimehoshi_ebiten_v2//ebitenutil",

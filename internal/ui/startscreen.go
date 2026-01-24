@@ -7,6 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/harness"
 	"github.com/tedks/CodingGame/internal/input"
 )
 
@@ -55,6 +56,9 @@ type StartScreen struct {
 
 	// Input source (for testing injection)
 	inputSource input.InputSource
+
+	// Harness registry for dynamic harness/model info
+	registry *harness.Registry
 }
 
 // NewStartScreen creates a new start screen.
@@ -65,6 +69,7 @@ func NewStartScreen(width, height int, onComplete func(config GameConfig)) *Star
 		state:          StateMainMenu,
 		onComplete:     onComplete,
 		inputSource:    input.DefaultSource,
+		registry:       harness.NewRegistry(),
 		recentProjects: []string{
 			// These would be loaded from a config file
 		},
@@ -98,22 +103,12 @@ func (ss *StartScreen) initMenus() {
 	ss.mainMenu.CancelAllowed = false
 	ss.mainMenu.Width = 200
 
-	// Harness selection
-	ss.harnessMenu = NewMenu("SELECT HARNESS", []*MenuItem{
-		NewMenuItemWithValue("Claude Code", "claude-code"),
-		NewMenuItemWithValue("Codex (coming soon)", "codex"),
-		NewMenuItemWithValue("Gemini (coming soon)", "gemini"),
-	})
-	ss.harnessMenu.Items[1].Enabled = false
-	ss.harnessMenu.Items[2].Enabled = false
+	// Harness selection - build from registry
+	ss.harnessMenu = ss.buildHarnessMenu()
 	ss.harnessMenu.Width = 280
 
-	// Model selection (updates based on harness)
-	ss.modelMenu = NewMenu("SELECT MODEL", []*MenuItem{
-		NewMenuItemWithValue("Opus 4 (Recommended)", "opus"),
-		NewMenuItemWithValue("Sonnet 4", "sonnet"),
-		NewMenuItemWithValue("Haiku 4", "haiku"),
-	})
+	// Model selection - initially for first harness, updates when harness selected
+	ss.modelMenu = ss.buildModelMenu("claude-code")
 	ss.modelMenu.Width = 280
 
 	// Project selection
@@ -131,6 +126,70 @@ func (ss *StartScreen) initMenus() {
 	}
 	ss.projectMenu = NewMenu("SELECT PROJECT", projectItems)
 	ss.projectMenu.Width = 400
+}
+
+// buildHarnessMenu creates the harness selection menu from the registry.
+func (ss *StartScreen) buildHarnessMenu() *Menu {
+	var items []*MenuItem
+
+	// Get all harness definitions from registry
+	for _, name := range ss.registry.Defined() {
+		info := ss.registry.Info(name)
+		if info == nil {
+			continue
+		}
+
+		// Build display label
+		label := info.DisplayName
+		if !info.Installed {
+			label += " (not installed)"
+		}
+
+		item := NewMenuItemWithValue(label, info.Name)
+		item.Enabled = info.Installed
+
+		items = append(items, item)
+	}
+
+	// If no harnesses defined, add a placeholder
+	if len(items) == 0 {
+		items = append(items, NewMenuItem("No harnesses available"))
+		items[0].Enabled = false
+	}
+
+	return NewMenu("SELECT HARNESS", items)
+}
+
+// buildModelMenu creates the model selection menu for a given harness.
+func (ss *StartScreen) buildModelMenu(harnessName string) *Menu {
+	var items []*MenuItem
+
+	models := ss.registry.Models(harnessName)
+	defaultModel := ss.registry.DefaultModel(harnessName)
+
+	for _, model := range models {
+		label := model.Name
+		if model.ID == defaultModel {
+			label += " (Recommended)"
+		}
+
+		items = append(items, NewMenuItemWithValue(label, model.ID))
+	}
+
+	// If no models defined, add a placeholder
+	if len(items) == 0 {
+		items = append(items, NewMenuItem("No models available"))
+		items[0].Enabled = false
+	}
+
+	return NewMenu("SELECT MODEL", items)
+}
+
+// updateModelMenuForHarness rebuilds the model menu for the selected harness.
+func (ss *StartScreen) updateModelMenuForHarness(harnessName string) {
+	ss.modelMenu = ss.buildModelMenu(harnessName)
+	ss.modelMenu.Width = 280
+	ss.modelMenu.SetInputSource(ss.inputSource)
 }
 
 // Update handles input and updates state.
@@ -189,6 +248,8 @@ func (ss *StartScreen) updateHarnessSelect() (Scene, error) {
 
 	if selected != "" {
 		ss.config.Harness = selected
+		// Update model menu for the selected harness
+		ss.updateModelMenuForHarness(selected)
 		ss.state = StateModelSelect
 	}
 
