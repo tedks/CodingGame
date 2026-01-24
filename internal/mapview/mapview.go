@@ -68,6 +68,13 @@ const (
 	TopPadding = 1 // Empty rows at top to avoid overlapping debug text
 )
 
+// Mouse interaction constants
+const (
+	DragThreshold         = 5   // Pixels of movement before considered a drag
+	DoubleClickIntervalMs = 400 // Milliseconds for double-click detection
+	DoubleClickDistMax    = 10  // Max pixel distance for double-click to register
+)
+
 // MapView manages the map visualization with tiles and fog of war
 type MapView struct {
 	projectPath string
@@ -272,11 +279,6 @@ func (m *MapView) Update() {
 
 // handleMouseInput processes mouse events for panning and tile selection
 func (m *MapView) handleMouseInput() {
-	const (
-		dragThreshold       = 5   // Pixels of movement before considered a drag
-		doubleClickInterval = 400 // Milliseconds for double-click detection
-	)
-
 	if m.inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		x, y := m.inputSource.CursorPosition()
 		if !m.dragging {
@@ -299,9 +301,9 @@ func (m *MapView) handleMouseInput() {
 		dx := abs(x - m.dragStartX)
 		dy := abs(y - m.dragStartY)
 
-		if dx < dragThreshold && dy < dragThreshold {
+		if dx < DragThreshold && dy < DragThreshold {
 			// This was a click, not a drag - handle tile selection
-			m.handleTileClick(m.dragStartX, m.dragStartY, doubleClickInterval)
+			m.handleTileClick(m.dragStartX, m.dragStartY, DoubleClickIntervalMs)
 		}
 		m.dragging = false
 	}
@@ -320,7 +322,7 @@ func (m *MapView) handleTileClick(screenX, screenY int, doubleClickMs int) {
 		timeSinceLastClick := now.Sub(m.lastClickTime).Milliseconds()
 		distFromLastClick := abs(screenX-m.lastClickX) + abs(screenY-m.lastClickY)
 
-		if timeSinceLastClick < int64(doubleClickMs) && distFromLastClick < 10 {
+		if timeSinceLastClick < int64(doubleClickMs) && distFromLastClick < DoubleClickDistMax {
 			isDoubleClick = true
 		}
 	}
@@ -910,13 +912,22 @@ func (m *MapView) ZoomOut() {
 	}
 }
 
-// adjustPanForZoom adjusts pan offset to keep the view centered when tile size changes
+// adjustPanForZoom adjusts pan offset to keep the view centered when tile size changes.
+//
+// The math preserves the world coordinate at screen center during zoom:
+//
+//	Before zoom: worldCenter = (screenCenter - panX) / oldSize
+//	After zoom:  worldCenter = (screenCenter - panX') / newSize
+//
+// Setting them equal and solving for panX':
+//
+//	panX' = screenCenter - worldCenter * newSize
+//	      = screenCenter - ((screenCenter - panX) / oldSize) * newSize
+//	      = screenCenter - (screenCenter - panX) * ratio    [where ratio = newSize/oldSize]
+//	      = screenCenter - screenCenter*ratio + panX*ratio
+//	      = panX*ratio + screenCenter*(1 - ratio)
 func (m *MapView) adjustPanForZoom(oldSize, newSize float64) {
-	// Calculate ratio between new and old tile sizes
 	ratio := newSize / oldSize
-
-	// Adjust pan to keep the center of the screen fixed
-	// The center of the screen in world coordinates should remain the same
 	centerX := float64(m.width) / 2
 	centerY := float64(m.height) / 2
 
