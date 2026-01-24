@@ -158,6 +158,47 @@ func TestParserBashTest(t *testing.T) {
 	}
 }
 
+func TestParserBashNoFalsePositives(t *testing.T) {
+	events := make(chan harness.Event, 10)
+	parser := NewParser(events)
+
+	// Commands that should NOT be classified as build or test
+	testCases := []struct {
+		name    string
+		command string
+	}{
+		{"echo with test word", `echo "test build"`},
+		{"echo with build word", `echo "running build..."`},
+		{"grep for test", "grep test file.go"},
+		{"cat test file", "cat test_output.txt"},
+		{"ls test dir", "ls test/"},
+		{"mv test file", "mv test.go test_backup.go"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := map[string]interface{}{
+				"type": "tool_use",
+				"name": "Bash",
+				"input": map[string]interface{}{
+					"command": tc.command,
+				},
+			}
+			data, _ := json.Marshal(input)
+			parser.ParseLine(data)
+
+			select {
+			case event := <-events:
+				if event.Type != harness.EventToolUse {
+					t.Errorf("Type = %v, want EventToolUse for command %q (should not be build/test)", event.Type, tc.command)
+				}
+			case <-time.After(time.Second):
+				t.Error("Timeout waiting for event")
+			}
+		})
+	}
+}
+
 func TestParserTextEvent(t *testing.T) {
 	events := make(chan harness.Event, 10)
 	parser := NewParser(events)

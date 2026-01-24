@@ -187,26 +187,64 @@ func (p *Parser) inferBashEventType(raw map[string]interface{}) harness.EventTyp
 	}
 
 	cmdLower := strings.ToLower(command)
-
-	// Check for build commands
-	buildPatterns := []string{
-		"build", "make", "cargo build", "go build", "npm run build",
-		"gradle", "maven", "bazel build", "cmake", "msbuild",
-	}
-	for _, pattern := range buildPatterns {
-		if strings.Contains(cmdLower, pattern) {
-			return harness.EventBuildRun
-		}
+	words := strings.Fields(cmdLower)
+	if len(words) == 0 {
+		return harness.EventToolUse
 	}
 
-	// Check for test commands
-	testPatterns := []string{
-		"test", "pytest", "go test", "npm test", "jest", "mocha",
-		"cargo test", "bazel test", "gradle test", "mvn test",
+	firstWord := words[0]
+
+	// Build tools that use "build" subcommand
+	buildSubcommandTools := map[string]bool{
+		"go": true, "cargo": true, "npm": true, "bazel": true,
+		"gradle": true, "mvn": true, "dotnet": true,
 	}
-	for _, pattern := range testPatterns {
-		if strings.Contains(cmdLower, pattern) {
+
+	// Standalone build tools (first word is the tool)
+	standaloneBuildTools := map[string]bool{
+		"make": true, "cmake": true, "msbuild": true, "ninja": true,
+	}
+
+	// Test tools that use "test" subcommand
+	testSubcommandTools := map[string]bool{
+		"go": true, "cargo": true, "npm": true, "bazel": true,
+		"gradle": true, "mvn": true, "dotnet": true,
+	}
+
+	// Standalone test tools (first word is the tool)
+	standaloneTestTools := map[string]bool{
+		"pytest": true, "jest": true, "mocha": true, "vitest": true,
+		"rspec": true, "phpunit": true,
+	}
+
+	// Check for standalone test tools first
+	if standaloneTestTools[firstWord] {
+		return harness.EventTestRun
+	}
+
+	// Check for standalone build tools
+	if standaloneBuildTools[firstWord] {
+		return harness.EventBuildRun
+	}
+
+	// Check for tools with subcommands
+	if len(words) >= 2 {
+		secondWord := words[1]
+
+		// Check for test subcommand
+		if testSubcommandTools[firstWord] && secondWord == "test" {
 			return harness.EventTestRun
+		}
+
+		// Check for build subcommand (including "run build" for npm)
+		if buildSubcommandTools[firstWord] {
+			if secondWord == "build" {
+				return harness.EventBuildRun
+			}
+			// npm run build
+			if firstWord == "npm" && secondWord == "run" && len(words) >= 3 && words[2] == "build" {
+				return harness.EventBuildRun
+			}
 		}
 	}
 

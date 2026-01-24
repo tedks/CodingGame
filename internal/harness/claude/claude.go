@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tedks/CodingGame/internal/harness"
 )
@@ -21,11 +22,13 @@ type ClaudeHarness struct {
 	*harness.BaseHarness
 
 	mu         sync.Mutex
+	wg         sync.WaitGroup
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
 	stdout     io.ReadCloser
 	stderr     io.ReadCloser
 	cancelFunc context.CancelFunc
+	done       chan struct{}
 	parser     *Parser
 }
 
@@ -54,8 +57,16 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
+	// Handle nil context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	// Create cancellable context
 	ctx, c.cancelFunc = context.WithCancel(ctx)
+
+	// Initialize done channel for goroutine signaling
+	c.done = make(chan struct{})
 
 	// Build command arguments
 	args := c.buildArgs(config)
@@ -99,6 +110,7 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 
 	// Create parser and start reading output
 	c.parser = NewParser(c.EventsWritable())
+	c.wg.Add(2)
 	go c.readOutput()
 	go c.readErrors()
 
@@ -146,12 +158,7 @@ func (c *ClaudeHarness) buildArgs(config harness.Config) []string {
 
 // readOutput reads and parses stdout from Claude
 func (c *ClaudeHarness) readOutput() {
-	defer func() {
-		c.mu.Lock()
-		c.SetRunning(false)
-		c.CloseEvents()
-		c.mu.Unlock()
-	}()
+	defer c.wg.Done()
 
 	scanner := bufio.NewScanner(c.stdout)
 	// Increase buffer size for large JSON messages
@@ -159,6 +166,13 @@ func (c *ClaudeHarness) readOutput() {
 	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
+		// Check if we should stop
+		select {
+		case <-c.done:
+			return
+		default:
+		}
+
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
@@ -169,6 +183,12 @@ func (c *ClaudeHarness) readOutput() {
 	}
 
 	if err := scanner.Err(); err != nil {
+		// Check if we're shutting down before sending error
+		select {
+		case <-c.done:
+			return
+		default:
+		}
 		c.EventsWritable() <- harness.NewEvent(harness.EventError).
 			WithError(fmt.Errorf("reading stdout: %w", err)).
 			WithSource("claude-code").
@@ -178,10 +198,25 @@ func (c *ClaudeHarness) readOutput() {
 
 // readErrors reads stderr and logs warnings
 func (c *ClaudeHarness) readErrors() {
+	defer c.wg.Done()
+
 	scanner := bufio.NewScanner(c.stderr)
 	for scanner.Scan() {
+		// Check if we should stop
+		select {
+		case <-c.done:
+			return
+		default:
+		}
+
 		line := scanner.Text()
 		if line != "" {
+			// Check again before sending
+			select {
+			case <-c.done:
+				return
+			default:
+			}
 			// Emit as warning event
 			c.EventsWritable() <- harness.NewEvent(harness.EventWarning).
 				WithText(line).
@@ -210,6 +245,11 @@ func (c *ClaudeHarness) Stop() error {
 		return nil
 	}
 
+	// Signal goroutines to stop
+	if c.done != nil {
+		close(c.done)
+	}
+
 	// Cancel the context
 	if c.cancelFunc != nil {
 		c.cancelFunc()
@@ -220,16 +260,39 @@ func (c *ClaudeHarness) Stop() error {
 		c.stdin.Close()
 	}
 
-	// Wait for the process to exit
+	// Close stdout/stderr pipes to unblock scanner goroutines
+	if c.stdout != nil {
+		c.stdout.Close()
+	}
+	if c.stderr != nil {
+		c.stderr.Close()
+	}
+
+	// Wait for the process to exit with timeout
 	if c.cmd != nil && c.cmd.Process != nil {
-		// Give it a moment to exit gracefully, then kill
-		if err := c.cmd.Wait(); err != nil {
-			// Process may have already exited
-			if !strings.Contains(err.Error(), "killed") {
-				return fmt.Errorf("stopping claude: %w", err)
+		waitDone := make(chan error, 1)
+		go func() {
+			waitDone <- c.cmd.Wait()
+		}()
+
+		select {
+		case err := <-waitDone:
+			// Process exited
+			if err != nil && !strings.Contains(err.Error(), "killed") {
+				// Don't return error, just log it - process may have been killed by context
 			}
+		case <-time.After(5 * time.Second):
+			// Timeout - force kill
+			c.cmd.Process.Kill()
+			<-waitDone // Wait for the goroutine to finish
 		}
 	}
+
+	// Wait for reader goroutines to complete
+	c.wg.Wait()
+
+	// Now safe to close events channel
+	c.CloseEvents()
 
 	c.SetRunning(false)
 	return nil
