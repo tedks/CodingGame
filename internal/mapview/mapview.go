@@ -108,11 +108,11 @@ type MapView struct {
 	treeLayout *TreeLayout           // Tree-style layout for directory view
 
 	// Colors
-	bgColor        color.RGBA
-	gridColor      color.RGBA
-	fogColor       color.RGBA
-	revealedColor  color.RGBA
-	selectedColor  color.RGBA // Highlight color for selected tile
+	bgColor       color.RGBA
+	gridColor     color.RGBA
+	fogColor      color.RGBA
+	revealedColor color.RGBA
+	selectedColor color.RGBA // Highlight color for selected tile
 
 	// Dataflow colors (used in ViewDataflow mode)
 	beltImportColor      color.RGBA
@@ -614,7 +614,7 @@ func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float3
 
 // drawTileLabels draws the tile name and progressive metadata
 func (m *MapView) drawTileLabels(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
-	const charWidth = 6  // ~6 pixels per character
+	const charWidth = 6   // ~6 pixels per character
 	const lineHeight = 14 // pixels between lines
 
 	maxChars := int(size) / charWidth
