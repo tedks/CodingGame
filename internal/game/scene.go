@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -49,6 +50,7 @@ type GameScene struct {
 	mainHarness harness.Harness
 	harnessCtx  context.Context
 	harnessStop context.CancelFunc
+	harnessWg   sync.WaitGroup
 
 	// Phase 3 components
 	advisorPool *advisor.Pool
@@ -299,11 +301,14 @@ func (gs *GameScene) startHarness(config ui.GameConfig) {
 	}
 
 	// Start event processing goroutine
+	gs.harnessWg.Add(1)
 	go gs.processHarnessEvents()
 }
 
 // processHarnessEvents reads events from the main harness and processes them.
 func (gs *GameScene) processHarnessEvents() {
+	defer gs.harnessWg.Done()
+
 	if gs.mainHarness == nil {
 		return
 	}
@@ -573,6 +578,9 @@ func (gs *GameScene) Close() error {
 	if gs.harnessStop != nil {
 		gs.harnessStop()
 	}
+
+	// Wait for event processing goroutine to complete
+	gs.harnessWg.Wait()
 
 	// Stop legacy interceptor
 	if gs.interceptor != nil {

@@ -2,6 +2,8 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -11,6 +13,9 @@ import (
 // Parser parses Claude Code JSON output and emits harness events
 type Parser struct {
 	events chan<- harness.Event
+	// DebugWriter, if set, receives debug output for parse failures and
+	// unrecognized event types. Useful for troubleshooting Claude output changes.
+	DebugWriter io.Writer
 }
 
 // NewParser creates a new Claude output parser
@@ -20,17 +25,32 @@ func NewParser(events chan<- harness.Event) *Parser {
 	}
 }
 
+// SetDebugWriter sets the writer for debug output.
+// Pass nil to disable debug logging.
+func (p *Parser) SetDebugWriter(w io.Writer) {
+	p.DebugWriter = w
+}
+
+// debugf writes a formatted debug message if DebugWriter is set.
+func (p *Parser) debugf(format string, args ...interface{}) {
+	if p.DebugWriter != nil {
+		fmt.Fprintf(p.DebugWriter, "[parser] "+format+"\n", args...)
+	}
+}
+
 // ParseLine parses a single line of JSON output
 func (p *Parser) ParseLine(line []byte) {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(line, &raw); err != nil {
-		// Not valid JSON, skip
+		p.debugf("JSON parse error: %v (line: %s)", err, string(line))
 		return
 	}
 
 	event := p.parseEvent(raw)
 	if event != nil {
 		p.events <- *event
+	} else {
+		p.debugf("unrecognized event structure: %s", string(line))
 	}
 }
 

@@ -21,7 +21,15 @@ type Config struct {
 	// MCPServers lists MCP server configurations to use
 	MCPServers []MCPServer
 
-	// Env contains environment variables (API keys, etc.)
+	// Env contains environment variables to pass to the harness subprocess.
+	// These are appended to the current process environment (os.Environ()).
+	//
+	// Security considerations:
+	// - Values may contain sensitive data (API keys, tokens, credentials)
+	// - Never populate Env with unsanitized user input
+	// - Variable names should be validated if from external sources
+	// - Consider using a dedicated secrets manager for production use
+	// - Parent process environment is inherited; Env only adds/overrides
 	Env map[string]string
 
 	// OutputFormat specifies the output format (usually "json" for parsing)
