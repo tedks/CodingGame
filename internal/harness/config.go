@@ -105,11 +105,10 @@ func (c Config) Validate() error {
 		return fmt.Errorf("working directory is not a directory: %s", c.WorkingDir)
 	}
 
-	// Validate temperature if set
-	if c.Temperature < 0 || c.Temperature > 1 {
-		if c.Temperature != 0 { // 0 is the default, allow it
-			return fmt.Errorf("temperature must be between 0 and 1, got %f", c.Temperature)
-		}
+	// Validate temperature if explicitly set (non-zero).
+	// Zero means "use default" and is always allowed.
+	if c.Temperature != 0 && (c.Temperature < 0 || c.Temperature > 1) {
+		return fmt.Errorf("temperature must be between 0 and 1, got %f", c.Temperature)
 	}
 
 	return nil

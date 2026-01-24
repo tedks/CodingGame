@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image/color"
+	"os"
 	"path/filepath"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -269,6 +270,7 @@ func (gs *GameScene) startHarness(config ui.GameConfig) {
 	h, err := gs.registry.Create(config.Harness)
 	if err != nil {
 		// Log error but don't fail - game can still work without harness
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create harness %s: %v\n", config.Harness, err)
 		return
 	}
 
@@ -282,6 +284,7 @@ func (gs *GameScene) startHarness(config ui.GameConfig) {
 	// Start the harness
 	if err := h.Start(gs.harnessCtx, harnessConfig); err != nil {
 		// Log error but don't fail
+		fmt.Fprintf(os.Stderr, "Warning: Failed to start harness %s: %v\n", config.Harness, err)
 		gs.harnessStop()
 		gs.harnessCtx = nil
 		gs.harnessStop = nil
