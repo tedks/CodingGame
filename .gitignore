@@ -1,7 +1,8 @@
-# beads database (JSONL is tracked)
+# beads database and issues (canonical source is beads-metadata branch)
 .beads/*.db
 .beads/*.db-wal
 .beads/*.db-shm
+.beads/issues.jsonl
 
 # Bazel artifacts
 bazel-*
