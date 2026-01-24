@@ -118,6 +118,7 @@ func TestSystemTests(t *testing.T) {
 		t.Run("DoubleClickUpdatesSelection", testMapViewDoubleClickUpdatesSelection)
 		t.Run("DragVsClickThreshold", testMapViewDragVsClickThreshold)
 		t.Run("ClickInBorderGap", testMapViewClickInBorderGap)
+		t.Run("TripleClickBehavior", testMapViewTripleClickBehavior)
 	})
 }
 

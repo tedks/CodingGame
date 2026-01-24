@@ -251,7 +251,11 @@ func (a *Adapter) Disconnect(session *debug.Session) error {
 	// Detach from process (let it continue)
 	if cmd != nil && cmd.Process != nil {
 		// Send detach command via SIGHUP or just close
-		cmd.Process.Signal(os.Interrupt)
+		// Error is logged but not returned since disconnect is best-effort
+		// and the process may have already exited
+		if err := cmd.Process.Signal(os.Interrupt); err != nil {
+			fmt.Fprintf(os.Stderr, "delve: failed to signal process during disconnect: %v\n", err)
+		}
 	}
 
 	session.SetState(debug.StateStopped)
