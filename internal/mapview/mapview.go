@@ -9,10 +9,12 @@
 package mapview
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -90,16 +92,27 @@ type MapView struct {
 	dragPanX   float64
 	dragPanY   float64
 
+	// Mouse click state for tile selection
+	selectedTile  *tile.Tile // Currently selected tile
+	lastClickTime time.Time  // For double-click detection
+	lastClickX    int        // Last click position
+	lastClickY    int
+
+	// Event callbacks
+	onTileSelect      func(*tile.Tile) // Called on single click
+	onTileDoubleClick func(*tile.Tile) // Called on double click
+
 	// Tile system
 	tiles      []*tile.Tile
 	tileMap    map[string]*tile.Tile // Fast lookup by path
 	treeLayout *TreeLayout           // Tree-style layout for directory view
 
 	// Colors
-	bgColor       color.RGBA
-	gridColor     color.RGBA
-	fogColor      color.RGBA
-	revealedColor color.RGBA
+	bgColor        color.RGBA
+	gridColor      color.RGBA
+	fogColor       color.RGBA
+	revealedColor  color.RGBA
+	selectedColor  color.RGBA // Highlight color for selected tile
 
 	// Dataflow colors (used in ViewDataflow mode)
 	beltImportColor      color.RGBA
@@ -146,6 +159,7 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		gridColor:     color.RGBA{60, 60, 80, 255},
 		fogColor:      color.RGBA{40, 40, 50, 200},
 		revealedColor: color.RGBA{100, 120, 150, 255},
+		selectedColor: color.RGBA{255, 200, 100, 180}, // Yellow highlight for selection
 		// Belt colors for dataflow view
 		beltImportColor:      color.RGBA{100, 150, 200, 255}, // Blue for imports
 		beltInheritanceColor: color.RGBA{200, 150, 100, 255}, // Orange for inheritance
@@ -231,6 +245,8 @@ func scanProjectDirectory(projectPath string) ([]*tile.Tile, error) {
 		}
 
 		t := tile.New(path, relPath, info.IsDir())
+		// Update tile with file metadata (size, modified time)
+		t.UpdateMetadata(info.Size(), info.ModTime())
 		tiles = append(tiles, t)
 
 		return nil
@@ -251,11 +267,20 @@ func (m *MapView) SetInputSource(source input.InputSource) {
 
 // Update updates the map view state and handles mouse input
 func (m *MapView) Update() {
-	// Handle mouse drag for panning (using input source for testability)
+	m.handleMouseInput()
+}
+
+// handleMouseInput processes mouse events for panning and tile selection
+func (m *MapView) handleMouseInput() {
+	const (
+		dragThreshold       = 5   // Pixels of movement before considered a drag
+		doubleClickInterval = 400 // Milliseconds for double-click detection
+	)
+
 	if m.inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		x, y := m.inputSource.CursorPosition()
 		if !m.dragging {
-			// Start drag
+			// Start potential drag
 			m.dragging = true
 			m.dragStartX = x
 			m.dragStartY = y
@@ -268,9 +293,121 @@ func (m *MapView) Update() {
 			m.panX = m.dragPanX + dx
 			m.panY = m.dragPanY + dy
 		}
-	} else {
+	} else if m.dragging {
+		// Mouse released - check if it was a click (small movement) or drag
+		x, y := m.inputSource.CursorPosition()
+		dx := abs(x - m.dragStartX)
+		dy := abs(y - m.dragStartY)
+
+		if dx < dragThreshold && dy < dragThreshold {
+			// This was a click, not a drag - handle tile selection
+			m.handleTileClick(m.dragStartX, m.dragStartY, doubleClickInterval)
+		}
 		m.dragging = false
 	}
+}
+
+// handleTileClick processes a click at the given screen coordinates
+func (m *MapView) handleTileClick(screenX, screenY int, doubleClickMs int) {
+	// Find the tile at this position
+	clickedTile := m.TileAtScreenPos(screenX, screenY)
+
+	now := time.Now()
+	isDoubleClick := false
+
+	// Check for double-click (same position, within time window)
+	if clickedTile != nil {
+		timeSinceLastClick := now.Sub(m.lastClickTime).Milliseconds()
+		distFromLastClick := abs(screenX-m.lastClickX) + abs(screenY-m.lastClickY)
+
+		if timeSinceLastClick < int64(doubleClickMs) && distFromLastClick < 10 {
+			isDoubleClick = true
+		}
+	}
+
+	// Update click tracking
+	m.lastClickTime = now
+	m.lastClickX = screenX
+	m.lastClickY = screenY
+
+	if clickedTile == nil {
+		// Clicked on empty space - deselect
+		m.selectedTile = nil
+		return
+	}
+
+	if isDoubleClick {
+		// Double-click: open file
+		if m.onTileDoubleClick != nil {
+			m.onTileDoubleClick(clickedTile)
+		}
+	} else {
+		// Single click: select tile
+		m.selectedTile = clickedTile
+		if m.onTileSelect != nil {
+			m.onTileSelect(clickedTile)
+		}
+	}
+}
+
+// TileAtScreenPos returns the tile at the given screen position, or nil if none
+func (m *MapView) TileAtScreenPos(screenX, screenY int) *tile.Tile {
+	tileSize := m.getTileSize()
+
+	// Convert screen position to world position
+	worldX := float64(screenX) - m.panX
+	worldY := float64(screenY) - m.panY - float64(TopPadding)*tileSize
+
+	// Check visible nodes from tree layout
+	if m.treeLayout == nil {
+		return nil
+	}
+
+	viewX := -m.panX
+	viewY := -m.panY - float64(TopPadding)*tileSize
+	visibleNodes := m.treeLayout.VisibleNodes(viewX, viewY, float64(m.width), float64(m.height))
+
+	for _, node := range visibleNodes {
+		if node.Tile == nil {
+			continue
+		}
+
+		// Check if click is within this tile's bounds
+		if worldX >= node.X && worldX < node.X+tileSize &&
+			worldY >= node.Y && worldY < node.Y+tileSize {
+			return node.Tile
+		}
+	}
+
+	return nil
+}
+
+// abs returns the absolute value of an int
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// SelectedTile returns the currently selected tile, or nil if none
+func (m *MapView) SelectedTile() *tile.Tile {
+	return m.selectedTile
+}
+
+// SetSelectedTile sets the selected tile
+func (m *MapView) SetSelectedTile(t *tile.Tile) {
+	m.selectedTile = t
+}
+
+// SetOnTileSelect sets the callback for tile selection events
+func (m *MapView) SetOnTileSelect(callback func(*tile.Tile)) {
+	m.onTileSelect = callback
+}
+
+// SetOnTileDoubleClick sets the callback for tile double-click events
+func (m *MapView) SetOnTileDoubleClick(callback func(*tile.Tile)) {
+	m.onTileDoubleClick = callback
 }
 
 // Draw renders the map view based on current view mode.
@@ -435,7 +572,7 @@ func (m *MapView) drawDataflowGrid(screen *ebiten.Image, offsetX, offsetY int, t
 	}
 }
 
-// drawTile renders a single tile with label
+// drawTile renders a single tile with label and progressive metadata based on zoom level
 func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
 	// Determine tile color based on file type (always use full color)
 	var tileColor color.RGBA
@@ -462,20 +599,122 @@ func (m *MapView) drawTile(screen *ebiten.Image, t *tile.Tile, x, y, size float3
 		vector.DrawFilledRect(screen, x, y, size-TileBorderSpacing, size-TileBorderSpacing, m.fogColor, false)
 	}
 
-	// Draw label (file/directory name)
+	// Draw selection highlight if this tile is selected
+	if m.selectedTile != nil && t.Path() == m.selectedTile.Path() {
+		vector.StrokeRect(screen, x-1, y-1, size-TileBorderSpacing+2, size-TileBorderSpacing+2, 3, m.selectedColor, false)
+	}
+
+	// Draw labels with progressive metadata based on zoom level
+	// Zoom 0-1: name only
+	// Zoom 2+: add size
+	// Zoom 3+: add last modified
+	// Zoom 4+: add reveal count (proxy for VC activity until git integration)
+	m.drawTileLabels(screen, t, x, y, size)
+}
+
+// drawTileLabels draws the tile name and progressive metadata
+func (m *MapView) drawTileLabels(screen *ebiten.Image, t *tile.Tile, x, y, size float32) {
+	const charWidth = 6  // ~6 pixels per character
+	const lineHeight = 14 // pixels between lines
+
+	maxChars := int(size) / charWidth
+	if maxChars < 3 {
+		maxChars = 3
+	}
+
+	// Line 1: Always show name
 	label := t.Name()
 	if t.IsDirectory() {
 		label += "/"
-	}
-	// Truncate label if too long for tile
-	maxChars := int(size) / 6 // ~6 pixels per character
-	if maxChars < 3 {
-		maxChars = 3
 	}
 	if len(label) > maxChars {
 		label = label[:maxChars-2] + ".."
 	}
 	ebitenutil.DebugPrintAt(screen, label, int(x)+2, int(y)+2)
+
+	// Line 2: Show size at zoom level 2+ (for files only)
+	if m.zoomLevel >= ZoomRegion && !t.IsDirectory() {
+		sizeLabel := formatSize(t.SizeBytes())
+		if len(sizeLabel) > maxChars {
+			sizeLabel = sizeLabel[:maxChars]
+		}
+		yPos := int(y) + 2 + lineHeight
+		if yPos < int(y+size)-lineHeight {
+			ebitenutil.DebugPrintAt(screen, sizeLabel, int(x)+2, yPos)
+		}
+	}
+
+	// Line 3: Show last modified at zoom level 3+
+	if m.zoomLevel >= ZoomCity {
+		modTime := t.LastModified()
+		var modLabel string
+		if modTime.IsZero() {
+			modLabel = ""
+		} else {
+			modLabel = formatRelativeTime(modTime)
+		}
+		if modLabel != "" && len(modLabel) > maxChars {
+			modLabel = modLabel[:maxChars]
+		}
+		yPos := int(y) + 2 + lineHeight*2
+		if modLabel != "" && yPos < int(y+size)-lineHeight {
+			ebitenutil.DebugPrintAt(screen, modLabel, int(x)+2, yPos)
+		}
+	}
+
+	// Line 4: Show reveal count at zoom level 4+ (proxy for activity)
+	if m.zoomLevel >= ZoomStreet {
+		revealCount := t.RevealCount()
+		var activityLabel string
+		if revealCount > 0 {
+			activityLabel = fmt.Sprintf("reads:%d", revealCount)
+		}
+		if activityLabel != "" && len(activityLabel) > maxChars {
+			activityLabel = activityLabel[:maxChars]
+		}
+		yPos := int(y) + 2 + lineHeight*3
+		if activityLabel != "" && yPos < int(y+size)-lineHeight {
+			ebitenutil.DebugPrintAt(screen, activityLabel, int(x)+2, yPos)
+		}
+	}
+}
+
+// formatSize formats bytes into human-readable size
+func formatSize(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1fK", float64(bytes)/1024)
+	}
+	if bytes < 1024*1024*1024 {
+		return fmt.Sprintf("%.1fM", float64(bytes)/(1024*1024))
+	}
+	return fmt.Sprintf("%.1fG", float64(bytes)/(1024*1024*1024))
+}
+
+// formatRelativeTime formats a time as relative (e.g., "2h ago", "3d ago")
+func formatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	if d < time.Minute {
+		return "now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	if d < 7*24*time.Hour {
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+	if d < 30*24*time.Hour {
+		return fmt.Sprintf("%dw", int(d.Hours()/(24*7)))
+	}
+	return fmt.Sprintf("%dmo", int(d.Hours()/(24*30)))
 }
 
 // clampUint8 clamps an int value to the valid uint8 range [0, 255]
@@ -651,18 +890,38 @@ func (m *MapView) Pan(dx, dy float64) {
 	m.panY -= dy
 }
 
-// ZoomIn increases the zoom level
+// ZoomIn increases the zoom level, keeping the view centered
 func (m *MapView) ZoomIn() {
 	if m.zoomLevel < ZoomInterior {
+		oldSize := m.getTileSize()
 		m.zoomLevel++
+		newSize := m.getTileSize()
+		m.adjustPanForZoom(oldSize, newSize)
 	}
 }
 
-// ZoomOut decreases the zoom level
+// ZoomOut decreases the zoom level, keeping the view centered
 func (m *MapView) ZoomOut() {
 	if m.zoomLevel > ZoomOverview {
+		oldSize := m.getTileSize()
 		m.zoomLevel--
+		newSize := m.getTileSize()
+		m.adjustPanForZoom(oldSize, newSize)
 	}
+}
+
+// adjustPanForZoom adjusts pan offset to keep the view centered when tile size changes
+func (m *MapView) adjustPanForZoom(oldSize, newSize float64) {
+	// Calculate ratio between new and old tile sizes
+	ratio := newSize / oldSize
+
+	// Adjust pan to keep the center of the screen fixed
+	// The center of the screen in world coordinates should remain the same
+	centerX := float64(m.width) / 2
+	centerY := float64(m.height) / 2
+
+	m.panX = m.panX*ratio + centerX*(1-ratio)
+	m.panY = m.panY*ratio + centerY*(1-ratio)
 }
 
 // ZoomLevel returns the current zoom level

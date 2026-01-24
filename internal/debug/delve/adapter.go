@@ -237,17 +237,21 @@ func (a *Adapter) Disconnect(session *debug.Session) error {
 		return errors.New("session not found")
 	}
 	delete(a.sessions, session.ID())
+
+	// Copy fields we need before unlocking to avoid races
+	conn := state.conn
+	cmd := state.cmd
 	a.mu.Unlock()
 
 	// Close connection
-	if state.conn != nil {
-		state.conn.Close()
+	if conn != nil {
+		conn.Close()
 	}
 
 	// Detach from process (let it continue)
-	if state.cmd != nil {
+	if cmd != nil && cmd.Process != nil {
 		// Send detach command via SIGHUP or just close
-		state.cmd.Process.Signal(os.Interrupt)
+		cmd.Process.Signal(os.Interrupt)
 	}
 
 	session.SetState(debug.StateStopped)
@@ -263,20 +267,24 @@ func (a *Adapter) Terminate(session *debug.Session) error {
 		return errors.New("session not found")
 	}
 	delete(a.sessions, session.ID())
+
+	// Copy the state for use after unlocking to avoid races
+	// We need the full state for the RPC call
+	stateCopy := *state
 	a.mu.Unlock()
 
 	// Send halt command to dlv
-	if state.conn != nil {
-		a.callRPC(state, "Command", map[string]interface{}{
+	if stateCopy.conn != nil {
+		a.callRPC(&stateCopy, "Command", map[string]interface{}{
 			"name": "halt",
 		})
-		state.conn.Close()
+		stateCopy.conn.Close()
 	}
 
 	// Kill dlv process
-	if state.cmd != nil {
-		state.cmd.Process.Kill()
-		state.cmd.Wait()
+	if stateCopy.cmd != nil && stateCopy.cmd.Process != nil {
+		stateCopy.cmd.Process.Kill()
+		stateCopy.cmd.Wait()
 	}
 
 	session.SetState(debug.StateStopped)

@@ -43,7 +43,6 @@ func TestIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
 
 	// Create some test files to visualize
 	createTestFiles(t, tmpDir)
@@ -53,6 +52,11 @@ func TestIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create game: %v", err)
 	}
+
+	// Cleanup defers - note: Go executes defers in LIFO order, so:
+	// 1. game.Close() runs first (closes file handles)
+	// 2. os.RemoveAll() runs second (safe to remove directory)
+	defer os.RemoveAll(tmpDir)
 	defer game.Close()
 
 	// Capture screenshot once (GLFW constraint - can only run once per process)
