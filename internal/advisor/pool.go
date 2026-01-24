@@ -470,35 +470,46 @@ func (p *Pool) RunAdvisor(ctx context.Context, advisor *Advisor, files []string)
 
 	// Collect events and process insights
 	var tokensIn, tokensOut int64
-	for event := range h.Events() {
-		switch event.Type {
-		case harness.EventTurnComplete:
-			// Analysis complete
-			advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, nil)
-			return nil
-
-		case harness.EventText:
-			// Could extract insights from text analysis
-			// For now, just track that we got output
-
-		case harness.EventError:
-			advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, event.Error)
-			return event.Error
-
-		default:
-			// Track token usage if available in raw data
-			if tin, ok := event.Raw["tokens_in"].(float64); ok {
-				tokensIn = int64(tin)
+	events := h.Events()
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				// Events channel closed without turn complete
+				advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, nil)
+				return nil
 			}
-			if tout, ok := event.Raw["tokens_out"].(float64); ok {
-				tokensOut = int64(tout)
+
+			switch event.Type {
+			case harness.EventTurnComplete:
+				// Analysis complete
+				advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, nil)
+				return nil
+
+			case harness.EventText:
+				// Could extract insights from text analysis
+				// For now, just track that we got output
+
+			case harness.EventError:
+				advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, event.Error)
+				return event.Error
+
+			default:
+				// Track token usage if available in raw data
+				if tin, ok := event.Raw["tokens_in"].(float64); ok {
+					tokensIn = int64(tin)
+				}
+				if tout, ok := event.Raw["tokens_out"].(float64); ok {
+					tokensOut = int64(tout)
+				}
 			}
+
+		case <-ctx.Done():
+			// Context cancelled - stop waiting for events
+			advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, ctx.Err())
+			return ctx.Err()
 		}
 	}
-
-	// Events channel closed without turn complete
-	advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, nil)
-	return nil
 }
 
 // buildAdvisorPrompt constructs the analysis prompt for an advisor.
