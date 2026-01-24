@@ -1,0 +1,23 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "harness",
+    srcs = [
+        "config.go",
+        "event.go",
+        "harness.go",
+        "registry.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/harness",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "harness_test",
+    srcs = [
+        "config_test.go",
+        "event_test.go",
+        "registry_test.go",
+    ],
+    embed = [":harness"],
+)
