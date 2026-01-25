@@ -1,0 +1,26 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "claude",
+    srcs = [
+        "claude.go",
+        "parser.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/harness/claude",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/harness",
+    ],
+)
+
+go_test(
+    name = "claude_test",
+    srcs = [
+        "claude_test.go",
+        "parser_test.go",
+    ],
+    embed = [":claude"],
+    deps = [
+        "//internal/harness",
+    ],
+)

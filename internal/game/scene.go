@@ -1,15 +1,20 @@
 package game
 
 import (
+	"context"
 	"fmt"
 	"image/color"
+	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/tedks/CodingGame/internal/advisor"
 	"github.com/tedks/CodingGame/internal/capability"
 	"github.com/tedks/CodingGame/internal/claude"
+	"github.com/tedks/CodingGame/internal/harness"
+	hclaude "github.com/tedks/CodingGame/internal/harness/claude"
 	"github.com/tedks/CodingGame/internal/input"
 	"github.com/tedks/CodingGame/internal/mapview"
 	"github.com/tedks/CodingGame/internal/multiagent"
@@ -38,7 +43,14 @@ type GameScene struct {
 	// Phase 1 components
 	mapView     *mapview.MapView
 	resources   *resources.Tracker
-	interceptor *claude.Interceptor
+	interceptor *claude.Interceptor // Legacy, kept for backwards compatibility
+
+	// Harness system (Phase: Agent Support)
+	registry    *harness.Registry
+	mainHarness harness.Harness
+	harnessCtx  context.Context
+	harnessStop context.CancelFunc
+	harnessWg   sync.WaitGroup
 
 	// Phase 3 components
 	advisorPool *advisor.Pool
@@ -82,11 +94,17 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	// Initialize resource tracker
 	resourceTracker := resources.New()
 
-	// Initialize Claude interceptor
+	// Initialize Claude interceptor (legacy, for backwards compatibility)
 	interceptor := claude.New()
+
+	// Initialize harness registry and register available harnesses
+	harnessRegistry := harness.NewRegistry()
+	harnessRegistry.Register("claude-code", hclaude.NewHarness)
 
 	// Initialize advisor pool with default advisors (Phase 3)
 	advisorPool := advisor.NewPool()
+	advisorPool.SetHarnessRegistry(harnessRegistry)
+	advisorPool.SetWorkingDir(projectPath)
 	if err := advisorPool.LoadFromConfig(advisor.DefaultConfigs()); err != nil {
 		return nil, fmt.Errorf("failed to load advisor configs: %w", err)
 	}
@@ -136,6 +154,7 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		mapView:                mapView,
 		resources:              resourceTracker,
 		interceptor:            interceptor,
+		registry:               harnessRegistry,
 		advisorPool:            advisorPool,
 		capabilityRegistry:     capRegistry,
 		capabilityRenderer:     capRenderer,
@@ -237,8 +256,159 @@ func (gs *GameScene) handlePromptCancel() {
 }
 
 // SetConfig sets the configuration from the start screen.
+// If a harness is specified, it will be started.
 func (gs *GameScene) SetConfig(config ui.GameConfig) {
 	gs.config = config
+
+	// Start the selected harness if one is specified
+	if config.Harness != "" && gs.registry.IsRegistered(config.Harness) {
+		gs.startHarness(config)
+	}
+}
+
+// startHarness creates and starts the main harness based on config.
+func (gs *GameScene) startHarness(config ui.GameConfig) {
+	// Create harness instance
+	h, err := gs.registry.Create(config.Harness)
+	if err != nil {
+		// Log error but don't fail - game can still work without harness
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create harness %s: %v\n", config.Harness, err)
+		return
+	}
+
+	// Create context for harness lifecycle
+	gs.harnessCtx, gs.harnessStop = context.WithCancel(context.Background())
+
+	// Build harness configuration
+	harnessConfig := harness.NewConfig(gs.projectPath).
+		WithModel(config.Model)
+
+	// Start the harness
+	if err := h.Start(gs.harnessCtx, harnessConfig); err != nil {
+		// Log error but don't fail
+		fmt.Fprintf(os.Stderr, "Warning: Failed to start harness %s: %v\n", config.Harness, err)
+		gs.harnessStop()
+		gs.harnessCtx = nil
+		gs.harnessStop = nil
+		return
+	}
+
+	gs.mainHarness = h
+
+	// Configure advisor pool to use the same harness as the main agent by default
+	if gs.advisorPool != nil {
+		gs.advisorPool.SetMainHarness(config.Harness)
+	}
+
+	// Start event processing goroutine
+	gs.harnessWg.Add(1)
+	go gs.processHarnessEvents()
+}
+
+// processHarnessEvents reads events from the main harness and processes them.
+func (gs *GameScene) processHarnessEvents() {
+	defer gs.harnessWg.Done()
+
+	if gs.mainHarness == nil {
+		return
+	}
+
+	for event := range gs.mainHarness.Events() {
+		gs.handleHarnessEvent(&event)
+	}
+}
+
+// handleHarnessEvent processes events from the harness system.
+func (gs *GameScene) handleHarnessEvent(event *harness.Event) {
+	switch event.Type {
+	case harness.EventFileRead:
+		// Reveal fog for files that the agent reads
+		path := event.FilePath()
+		if path != "" {
+			absPath := gs.resolveFilePath(path)
+			gs.mapView.RevealTile(absPath)
+		}
+
+	case harness.EventFileWrite, harness.EventFileEdit:
+		// Highlight files that the agent writes/edits
+		path := event.FilePath()
+		if path != "" {
+			absPath := gs.resolveFilePath(path)
+			gs.mapView.RevealTile(absPath)
+			// Trigger advisors that watch this file
+			gs.triggerAdvisorsForFile(path)
+		}
+
+	case harness.EventBuildRun:
+		// Update build status in resource tracker
+		// TODO: Extract build results and update resources
+
+	case harness.EventTestRun:
+		// Update test results
+		// TODO: Extract test results and update resources
+
+	case harness.EventSubagentRun:
+		// Handle advisor/subagent execution
+		gs.handleHarnessAdvisorEvent(event)
+	}
+}
+
+// handleHarnessAdvisorEvent processes advisor-related events from the harness.
+func (gs *GameScene) handleHarnessAdvisorEvent(event *harness.Event) {
+	// Extract advisor ID from event
+	advisorID, _ := event.ToolInput["advisor_id"].(string)
+	if advisorID == "" {
+		advisorID, _ = event.Raw["advisor_id"].(string)
+	}
+	if advisorID == "" {
+		return
+	}
+
+	adv := gs.advisorPool.Get(advisorID)
+	if adv == nil {
+		return
+	}
+
+	// Check status in raw data
+	if status, ok := event.Raw["status"].(string); ok {
+		switch status {
+		case "started":
+			adv.StartAnalysis()
+		case "completed":
+			duration, _ := event.Raw["duration_ms"].(float64)
+			tokensIn, _ := event.Raw["tokens_in"].(float64)
+			tokensOut, _ := event.Raw["tokens_out"].(float64)
+			adv.CompleteAnalysis(
+				durationFromMs(duration),
+				int64(tokensIn),
+				int64(tokensOut),
+				nil,
+			)
+		case "error":
+			errMsg, _ := event.Raw["error"].(string)
+			adv.CompleteAnalysis(0, 0, 0, fmt.Errorf("%s", errMsg))
+		}
+	}
+
+	// Check for insights in the event
+	if insightsData, ok := event.Raw["insights"].([]interface{}); ok {
+		for _, insightData := range insightsData {
+			if insightMap, ok := insightData.(map[string]interface{}); ok {
+				insight := gs.parseInsight(advisorID, insightMap)
+				if insight != nil {
+					adv.AddInsight(insight)
+				}
+			}
+		}
+	}
+}
+
+// resolveFilePath resolves a file path relative to the project path.
+func (gs *GameScene) resolveFilePath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(gs.projectPath, path)
 }
 
 // Update implements ui.Scene.
@@ -397,26 +567,42 @@ func (gs *GameScene) Close() error {
 	if gs.productionWatcher != nil {
 		gs.productionWatcher.Stop()
 	}
+
+	// Stop the main harness if running
+	if gs.mainHarness != nil {
+		if err := gs.mainHarness.Stop(); err != nil {
+			// Log but don't fail on harness stop error
+			_ = err
+		}
+	}
+	if gs.harnessStop != nil {
+		gs.harnessStop()
+	}
+
+	// Wait for event processing goroutine to complete
+	gs.harnessWg.Wait()
+
+	// Stop legacy interceptor
 	if gs.interceptor != nil {
 		return gs.interceptor.Stop()
 	}
 	return nil
 }
 
-// handleClaudeEvent processes events from the Claude interceptor.
+// handleClaudeEvent processes events from the Claude interceptor (legacy).
 func (gs *GameScene) handleClaudeEvent(event *claude.Event) {
 	switch event.Type {
 	case claude.EventFileRead:
 		// Reveal fog for files that Claude reads
 		if path, ok := event.Data["file_path"].(string); ok {
-			absPath := filepath.Join(gs.projectPath, path)
+			absPath := gs.resolveFilePath(path)
 			gs.mapView.RevealTile(absPath)
 		}
 
 	case claude.EventFileWrite, claude.EventFileEdit:
 		// Highlight files that Claude writes/edits
 		if path, ok := event.Data["file_path"].(string); ok {
-			absPath := filepath.Join(gs.projectPath, path)
+			absPath := gs.resolveFilePath(path)
 			// Reveal and highlight the tile
 			gs.mapView.RevealTile(absPath)
 			// Trigger advisors that watch this file (Phase 3)
@@ -542,5 +728,52 @@ func (gs *GameScene) triggerAdvisorsForFile(filePath string) {
 		// In a real implementation, this would spawn the advisor subagent
 		// For now, we just mark that the advisor should analyze this file
 		_ = adv // TODO: Implement actual advisor execution
+	}
+}
+
+// Harness returns the main harness instance, if one is running.
+func (gs *GameScene) Harness() harness.Harness {
+	return gs.mainHarness
+}
+
+// HarnessRegistry returns the harness registry.
+func (gs *GameScene) HarnessRegistry() *harness.Registry {
+	return gs.registry
+}
+
+// SendPrompt sends a prompt to the main harness if one is running.
+// Returns an error if no harness is running.
+func (gs *GameScene) SendPrompt(prompt string) error {
+	if gs.mainHarness == nil || !gs.mainHarness.IsRunning() {
+		return fmt.Errorf("no harness running")
+	}
+	return gs.mainHarness.SendPrompt(prompt)
+}
+
+// SimulateHarnessEvent injects a simulated harness event for testing.
+func (gs *GameScene) SimulateHarnessEvent(event harness.Event) {
+	gs.handleHarnessEvent(&event)
+}
+
+// SimulateFileRead simulates a file read event.
+// This works with both the legacy interceptor and the new harness system.
+func (gs *GameScene) SimulateFileRead(path string) {
+	// Use legacy interceptor for backwards compatibility
+	if gs.interceptor != nil {
+		gs.interceptor.SimulateFileRead(path)
+	}
+}
+
+// SimulateFileWrite simulates a file write event.
+func (gs *GameScene) SimulateFileWrite(path string) {
+	if gs.interceptor != nil {
+		gs.interceptor.SimulateFileWrite(path)
+	}
+}
+
+// SimulateFileEdit simulates a file edit event.
+func (gs *GameScene) SimulateFileEdit(path string) {
+	if gs.interceptor != nil {
+		gs.interceptor.SimulateFileEdit(path)
 	}
 }

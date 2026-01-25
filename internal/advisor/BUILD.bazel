@@ -10,6 +10,9 @@ go_library(
     ],
     importpath = "github.com/tedks/CodingGame/internal/advisor",
     visibility = ["//visibility:public"],
+    deps = [
+        "//internal/harness",
+    ],
 )
 
 go_test(

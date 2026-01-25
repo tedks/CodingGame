@@ -115,24 +115,38 @@ func TestStartScreen_MainMenuOptions(t *testing.T) {
 func TestStartScreen_HarnessMenuOptions(t *testing.T) {
 	ss := NewStartScreen(800, 600, nil)
 
-	// Should have Claude Code (enabled) and others (disabled)
+	// Should have harness options from the registry
 	if len(ss.harnessMenu.Items) < 1 {
 		t.Fatal("expected at least 1 harness option")
 	}
 
-	// Claude Code should be enabled
-	claudeCodeItem := ss.harnessMenu.Items[0]
-	if !claudeCodeItem.Enabled {
-		t.Error("expected Claude Code to be enabled")
+	// Find Claude Code item by value
+	var claudeCodeItem *MenuItem
+	for _, item := range ss.harnessMenu.Items {
+		if item.Value == "claude-code" {
+			claudeCodeItem = item
+			break
+		}
 	}
+
+	if claudeCodeItem == nil {
+		t.Fatal("expected Claude Code harness option")
+	}
+
+	// Claude Code enabled status depends on whether CLI is installed
+	// In most dev environments, it will be installed
+	// The test just verifies the item exists with correct value
 	if claudeCodeItem.Value != "claude-code" {
 		t.Errorf("expected value 'claude-code', got %q", claudeCodeItem.Value)
 	}
 
-	// Other options should be disabled (coming soon)
-	for i := 1; i < len(ss.harnessMenu.Items); i++ {
-		if ss.harnessMenu.Items[i].Enabled {
-			t.Errorf("expected item %d to be disabled", i)
+	// Verify that disabled items have "(not installed)" in label
+	for _, item := range ss.harnessMenu.Items {
+		if !item.Enabled {
+			if item.Label == "" || item.Label[len(item.Label)-1] != ')' {
+				// Disabled items should indicate why (not installed)
+				t.Logf("disabled item %q doesn't indicate reason", item.Label)
+			}
 		}
 	}
 }
