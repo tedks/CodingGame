@@ -20,8 +20,12 @@ func TestNew(t *testing.T) {
 func TestAddHandler(t *testing.T) {
 	interceptor := New()
 
-	handlerCalled := false
+	var handlerCalled bool
+	var mu sync.Mutex
+
 	handler := func(e *Event) {
+		mu.Lock()
+		defer mu.Unlock()
 		handlerCalled = true
 	}
 
@@ -39,6 +43,8 @@ func TestAddHandler(t *testing.T) {
 	// Wait for event to be processed
 	time.Sleep(50 * time.Millisecond)
 
+	mu.Lock()
+	defer mu.Unlock()
 	if !handlerCalled {
 		t.Error("expected handler to be called")
 	}
