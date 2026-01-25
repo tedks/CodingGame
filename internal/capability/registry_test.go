@@ -2,7 +2,9 @@ package capability
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 )
 
 // mockDiscoverer is a test discoverer that returns configured capabilities.
@@ -189,8 +191,11 @@ func TestRegistryListener(t *testing.T) {
 	r := NewRegistry()
 
 	var notifiedCaps []*Capability
+	var mu sync.Mutex
 	listener := &testListener{
 		onChanged: func(caps []*Capability) {
+			mu.Lock()
+			defer mu.Unlock()
 			notifiedCaps = caps
 		},
 	}
@@ -206,7 +211,10 @@ func TestRegistryListener(t *testing.T) {
 	r.Refresh()
 
 	// Give goroutine time to run
-	// In production code we'd use proper synchronization
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
 	if len(notifiedCaps) == 0 {
 		// Listener was called asynchronously, this is expected behavior
 		// The actual notification happens in a goroutine

@@ -2,7 +2,9 @@ package production
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 )
 
 // mockDiscoverer is a test discoverer that returns configured services.
@@ -196,8 +198,11 @@ func TestRegistryListener(t *testing.T) {
 	r := NewRegistry()
 
 	var notifiedServices []*Service
+	var mu sync.Mutex
 	listener := &testListener{
 		onChanged: func(services []*Service) {
+			mu.Lock()
+			defer mu.Unlock()
 			notifiedServices = services
 		},
 	}
@@ -213,7 +218,10 @@ func TestRegistryListener(t *testing.T) {
 	r.Refresh()
 
 	// Give goroutine time to run
-	// In production code we'd use proper synchronization
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
 	if len(notifiedServices) == 0 {
 		// Listener was called asynchronously, this is expected behavior
 		// The actual notification happens in a goroutine
