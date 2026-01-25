@@ -20,13 +20,12 @@ func TestNew(t *testing.T) {
 func TestAddHandler(t *testing.T) {
 	interceptor := New()
 
-	var handlerCalled bool
-	var mu sync.Mutex
-
+	handlerCalled := make(chan struct{}, 1)
 	handler := func(e *Event) {
-		mu.Lock()
-		defer mu.Unlock()
-		handlerCalled = true
+		select {
+		case handlerCalled <- struct{}{}:
+		default:
+		}
 	}
 
 	interceptor.AddHandler(handler)
@@ -40,13 +39,12 @@ func TestAddHandler(t *testing.T) {
 	// Simulate a file read event
 	interceptor.SimulateFileRead("/path/to/file.go")
 
-	// Wait for event to be processed
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !handlerCalled {
-		t.Error("expected handler to be called")
+	// Wait for handler to be called with timeout
+	select {
+	case <-handlerCalled:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Error("expected handler to be called within timeout")
 	}
 }
 

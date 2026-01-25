@@ -2,7 +2,6 @@ package capability
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 )
@@ -190,13 +189,13 @@ func TestRegistryCountByDomain(t *testing.T) {
 func TestRegistryListener(t *testing.T) {
 	r := NewRegistry()
 
-	var notifiedCaps []*Capability
-	var mu sync.Mutex
+	listenerCalled := make(chan []*Capability, 1)
 	listener := &testListener{
 		onChanged: func(caps []*Capability) {
-			mu.Lock()
-			defer mu.Unlock()
-			notifiedCaps = caps
+			select {
+			case listenerCalled <- caps:
+			default:
+			}
 		},
 	}
 	r.AddListener(listener)
@@ -210,14 +209,14 @@ func TestRegistryListener(t *testing.T) {
 	r.RegisterDiscoverer(mock)
 	r.Refresh()
 
-	// Give goroutine time to run
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(notifiedCaps) == 0 {
-		// Listener was called asynchronously, this is expected behavior
-		// The actual notification happens in a goroutine
+	// Wait for listener to be called with timeout
+	select {
+	case caps := <-listenerCalled:
+		if len(caps) != 1 {
+			t.Errorf("expected 1 capability, got %d", len(caps))
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("listener was not called within timeout")
 	}
 }
 

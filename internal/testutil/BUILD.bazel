@@ -5,6 +5,8 @@ go_library(
     srcs = [
         "compare.go",
         "input.go",
+        "race_disabled.go",
+        "race_enabled.go",
         "runner.go",
         "scenario.go",
         "screenshot.go",
@@ -22,6 +24,7 @@ go_test(
     srcs = [
         "compare_test.go",
         "input_test.go",
+        "race_test.go",
         "runner_test.go",
         "scenario_test.go",
         "screenshot_test.go",

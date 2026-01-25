@@ -2,7 +2,6 @@ package production
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 )
@@ -197,13 +196,13 @@ func TestRegistryCountByHealth(t *testing.T) {
 func TestRegistryListener(t *testing.T) {
 	r := NewRegistry()
 
-	var notifiedServices []*Service
-	var mu sync.Mutex
+	listenerCalled := make(chan []*Service, 1)
 	listener := &testListener{
 		onChanged: func(services []*Service) {
-			mu.Lock()
-			defer mu.Unlock()
-			notifiedServices = services
+			select {
+			case listenerCalled <- services:
+			default:
+			}
 		},
 	}
 	r.AddListener(listener)
@@ -217,14 +216,14 @@ func TestRegistryListener(t *testing.T) {
 	r.RegisterDiscoverer(mock)
 	r.Refresh()
 
-	// Give goroutine time to run
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if len(notifiedServices) == 0 {
-		// Listener was called asynchronously, this is expected behavior
-		// The actual notification happens in a goroutine
+	// Wait for listener to be called with timeout
+	select {
+	case services := <-listenerCalled:
+		if len(services) != 1 {
+			t.Errorf("expected 1 service, got %d", len(services))
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("listener was not called within timeout")
 	}
 }
 

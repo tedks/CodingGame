@@ -110,11 +110,11 @@ PR #25 introduced a harness framework for multi-agent support, consisting of ~15
 
 ### Short-term (next PRs)
 
-| Action | Owner | Due |
-|--------|-------|-----|
-| Create CONCURRENCY.md documenting goroutine patterns | tedks/Claude | Next PR |
-| Add go vet and race detector to CI | tedks | Next PR |
-| Audit all channel close sites for sync.Once | Claude | Next PR |
+| Action | Owner | Status |
+|--------|-------|--------|
+| Create CONCURRENCY.md documenting goroutine patterns | tedks/Claude | [#27](https://github.com/tedks/CodingGame/issues/27) |
+| Add go vet and race detector to CI | tedks | Done (PR #26) |
+| Audit all channel close sites for sync.Once | Claude | [#28](https://github.com/tedks/CodingGame/issues/28) |
 
 ### Long-term (process changes)
 
