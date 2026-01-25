@@ -103,24 +103,43 @@ func (e *Event) FilePath() string {
 }
 
 // SafeFilePath extracts and validates the file path from a file event.
-// Returns the cleaned path and true if valid, or empty string and false if invalid.
-// This method protects against path traversal attacks by rejecting paths that
-// attempt to escape the working directory.
-func (e *Event) SafeFilePath() (string, bool) {
+// Returns the cleaned absolute path and true if valid, or empty string and false if:
+// - The path is empty
+// - The path attempts to escape baseDir via traversal
+// - The resolved path is not within baseDir
+//
+// baseDir must be an absolute path. If the event path is relative, it is
+// resolved relative to baseDir.
+func (e *Event) SafeFilePath(baseDir string) (string, bool) {
 	path := e.FilePath()
 	if path == "" {
 		return "", false
 	}
 
-	// Clean the path to normalize it
-	cleaned := filepath.Clean(path)
+	// Resolve to absolute path
+	var absPath string
+	if filepath.IsAbs(path) {
+		absPath = filepath.Clean(path)
+	} else {
+		absPath = filepath.Clean(filepath.Join(baseDir, path))
+	}
 
-	// Reject paths that try to escape (after cleaning, shouldn't start with ..)
-	if strings.HasPrefix(cleaned, "..") {
+	// Ensure baseDir is clean for comparison
+	cleanBase := filepath.Clean(baseDir)
+
+	// Verify the path is within baseDir
+	// Use filepath.Rel to check - if it requires ".." to reach, it's outside
+	rel, err := filepath.Rel(cleanBase, absPath)
+	if err != nil {
 		return "", false
 	}
 
-	return cleaned, true
+	// If relative path starts with "..", it's outside baseDir
+	if strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+
+	return absPath, true
 }
 
 // Command extracts the command from a bash/build/test event

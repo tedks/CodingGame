@@ -29,6 +29,7 @@ type ClaudeHarness struct {
 
 	mu         sync.Mutex
 	wg         sync.WaitGroup
+	monitorWg  sync.WaitGroup // Tracks monitorProcess goroutine
 	cmd        *exec.Cmd
 	stdin      io.WriteCloser
 	stdout     io.ReadCloser
@@ -128,6 +129,7 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 	go c.readErrors()
 
 	// Monitor process for unexpected exit (crash handling)
+	c.monitorWg.Add(1)
 	go c.monitorProcess()
 
 	c.SetRunning(true)
@@ -138,6 +140,8 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 // This handles the case where the process crashes before Stop() is called,
 // preventing consumers from deadlocking on the events channel.
 func (c *ClaudeHarness) monitorProcess() {
+	defer c.monitorWg.Done()
+
 	if c.cmd == nil || c.cmd.Process == nil {
 		return
 	}
@@ -336,23 +340,23 @@ func (c *ClaudeHarness) Stop() error {
 		c.stderr.Close()
 	}
 
-	// Wait for the process to exit with timeout
+	// Wait for the process to exit with timeout.
+	// monitorProcess is the sole owner of cmd.Wait() to avoid race conditions.
+	// We wait for it to complete, with a timeout for safety.
 	if c.cmd != nil && c.cmd.Process != nil {
-		waitDone := make(chan error, 1)
+		monitorDone := make(chan struct{})
 		go func() {
-			waitDone <- c.cmd.Wait()
+			c.monitorWg.Wait()
+			close(monitorDone)
 		}()
 
 		select {
-		case err := <-waitDone:
-			// Process exited
-			if err != nil && !strings.Contains(err.Error(), "killed") {
-				// Don't return error, just log it - process may have been killed by context
-			}
+		case <-monitorDone:
+			// monitorProcess completed normally
 		case <-time.After(5 * time.Second):
-			// Timeout - force kill
+			// Timeout - force kill the process
 			c.cmd.Process.Kill()
-			<-waitDone // Wait for the goroutine to finish
+			<-monitorDone // Wait for monitorProcess to finish
 		}
 	}
 

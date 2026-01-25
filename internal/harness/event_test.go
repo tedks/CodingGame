@@ -226,33 +226,47 @@ func TestEventIsBuildOrTest(t *testing.T) {
 }
 
 func TestEventSafeFilePath(t *testing.T) {
+	baseDir := "/home/user/project"
+
 	tests := []struct {
 		name      string
 		path      string
 		wantPath  string
 		wantValid bool
 	}{
-		{"valid absolute path", "/home/user/file.go", "/home/user/file.go", true},
-		{"valid relative path", "src/main.go", "src/main.go", true},
-		{"path with dot", "./src/main.go", "src/main.go", true},
-		{"path traversal attack", "../../etc/passwd", "", false},
-		{"path traversal in middle", "src/../../etc/passwd", "", false},
+		// Valid paths within baseDir
+		{"relative path", "src/main.go", "/home/user/project/src/main.go", true},
+		{"path with dot", "./src/main.go", "/home/user/project/src/main.go", true},
+		{"absolute within base", "/home/user/project/file.go", "/home/user/project/file.go", true},
+		{"absolute in subdirectory", "/home/user/project/src/main.go", "/home/user/project/src/main.go", true},
+
+		// Invalid paths - traversal attacks
+		{"traversal attack", "../../etc/passwd", "", false},
+		{"traversal in middle", "src/../../etc/passwd", "", false},
 		{"dot-dot at start", "../file.go", "", false},
+		{"complex traversal", "a/b/../../../etc/passwd", "", false},
+
+		// Invalid paths - absolute outside baseDir
+		{"absolute outside base", "/etc/passwd", "", false},
+		{"absolute sibling dir", "/home/user/other/file.go", "", false},
+		{"absolute parent dir", "/home/user/file.go", "", false},
+
+		// Edge cases
 		{"empty path", "", "", false},
 		{"just dots", "..", "", false},
-		{"complex traversal", "a/b/../../../etc/passwd", "", false},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event := Event{
 				ToolInput: map[string]interface{}{"file_path": tt.path},
 			}
-			gotPath, gotValid := event.SafeFilePath()
+			gotPath, gotValid := event.SafeFilePath(baseDir)
 			if gotValid != tt.wantValid {
-				t.Errorf("SafeFilePath() valid = %v, want %v", gotValid, tt.wantValid)
+				t.Errorf("SafeFilePath(%q) valid = %v, want %v", tt.path, gotValid, tt.wantValid)
 			}
 			if gotValid && gotPath != tt.wantPath {
-				t.Errorf("SafeFilePath() path = %q, want %q", gotPath, tt.wantPath)
+				t.Errorf("SafeFilePath(%q) path = %q, want %q", tt.path, gotPath, tt.wantPath)
 			}
 		})
 	}
