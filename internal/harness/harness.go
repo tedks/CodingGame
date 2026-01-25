@@ -71,7 +71,38 @@ type MCPServer struct {
 // HarnessFactory creates a new instance of a harness
 type HarnessFactory func() Harness
 
-// BaseHarness provides common functionality for harness implementations
+// BaseHarness provides common functionality for harness implementations.
+//
+// # Thread Safety
+//
+// BaseHarness is designed for concurrent use with the following guarantees:
+//
+//   - IsRunning() and SetRunning() are protected by a mutex and safe to call
+//     from multiple goroutines.
+//   - Events() returns a receive-only channel that can be read by one consumer.
+//     Multiple consumers reading from the same channel will each receive a
+//     subset of events (fan-out behavior).
+//   - EventsWritable() returns a send-only channel. Multiple goroutines may
+//     send events concurrently, but implementers must ensure the channel is
+//     not closed while sends are in progress.
+//   - CloseEvents() must be called exactly once, after all senders have stopped.
+//     Use sync.Once in implementations to prevent double-close panics.
+//
+// # Event Ordering
+//
+// Events are delivered in the order they are sent to the channel. There is no
+// guaranteed ordering between events from different goroutines (e.g., stdout
+// vs stderr readers). The events channel has a buffer of 100 events; if the
+// consumer falls behind, senders will block.
+//
+// # Lifecycle
+//
+// A harness progresses through these states:
+//  1. Created (NewBaseHarness) - not running, events channel open
+//  2. Started (SetRunning(true)) - running, events flowing
+//  3. Stopped (SetRunning(false), CloseEvents) - not running, events channel closed
+//
+// Once stopped, a BaseHarness cannot be restarted. Create a new instance instead.
 type BaseHarness struct {
 	mu      sync.RWMutex
 	name    string

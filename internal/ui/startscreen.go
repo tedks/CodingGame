@@ -143,10 +143,13 @@ func (ss *StartScreen) buildHarnessMenu() *Menu {
 		label := info.DisplayName
 		if !info.Installed {
 			label += " (not installed)"
+		} else if !info.Registered {
+			label += " (not supported)"
 		}
 
 		item := NewMenuItemWithValue(label, info.Name)
-		item.Enabled = info.Installed
+		// Only enable if both installed AND has a registered factory
+		item.Enabled = info.Installed && info.Registered
 
 		items = append(items, item)
 	}

@@ -30,6 +30,7 @@ type ClaudeHarness struct {
 	cancelFunc context.CancelFunc
 	done       chan struct{}
 	parser     *Parser
+	closeOnce  sync.Once // Ensures events channel is closed exactly once
 }
 
 // New creates a new Claude Code harness
@@ -114,8 +115,45 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 	go c.readOutput()
 	go c.readErrors()
 
+	// Monitor process for unexpected exit (crash handling)
+	go c.monitorProcess()
+
 	c.SetRunning(true)
 	return nil
+}
+
+// monitorProcess watches for the process to exit and ensures cleanup.
+// This handles the case where the process crashes before Stop() is called,
+// preventing consumers from deadlocking on the events channel.
+func (c *ClaudeHarness) monitorProcess() {
+	if c.cmd == nil || c.cmd.Process == nil {
+		return
+	}
+
+	// Wait for process to exit (blocks until exit)
+	c.cmd.Wait()
+
+	// Signal done to unblock reader goroutines
+	c.mu.Lock()
+	if c.done != nil {
+		select {
+		case <-c.done:
+			// Already closed
+		default:
+			close(c.done)
+		}
+	}
+	c.mu.Unlock()
+
+	// Wait for reader goroutines to finish
+	c.wg.Wait()
+
+	// Close events channel exactly once
+	c.closeOnce.Do(func() {
+		c.CloseEvents()
+	})
+
+	c.SetRunning(false)
 }
 
 // buildArgs constructs the command line arguments for Claude
@@ -245,9 +283,14 @@ func (c *ClaudeHarness) Stop() error {
 		return nil
 	}
 
-	// Signal goroutines to stop
+	// Signal goroutines to stop (check if already closed by monitorProcess)
 	if c.done != nil {
-		close(c.done)
+		select {
+		case <-c.done:
+			// Already closed by monitorProcess
+		default:
+			close(c.done)
+		}
 	}
 
 	// Cancel the context
@@ -291,8 +334,10 @@ func (c *ClaudeHarness) Stop() error {
 	// Wait for reader goroutines to complete
 	c.wg.Wait()
 
-	// Now safe to close events channel
-	c.CloseEvents()
+	// Close events channel exactly once (may have been closed by monitorProcess)
+	c.closeOnce.Do(func() {
+		c.CloseEvents()
+	})
 
 	c.SetRunning(false)
 	return nil

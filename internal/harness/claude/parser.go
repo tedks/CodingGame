@@ -117,14 +117,23 @@ func (p *Parser) parseEvent(raw map[string]interface{}) *harness.Event {
 		}
 
 	case harness.EventError:
-		// Extract error message if available
+		// Extract error message if available and create error object
+		var errorMsg string
 		if msg, ok := raw["message"].(string); ok {
+			errorMsg = msg
 			event = event.WithText(msg)
 		}
 		if errData, ok := raw["error"].(map[string]interface{}); ok {
 			if msg, ok := errData["message"].(string); ok {
+				errorMsg = msg
 				event = event.WithText(msg)
 			}
+		}
+		// Create a non-nil error so consumers can detect failures
+		if errorMsg != "" {
+			event = event.WithError(fmt.Errorf("%s", errorMsg))
+		} else {
+			event = event.WithError(fmt.Errorf("unknown error from harness"))
 		}
 	}
 
