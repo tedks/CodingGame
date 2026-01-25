@@ -1,6 +1,10 @@
 package harness
 
-import "time"
+import (
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 // EventType represents the type of harness event
 type EventType string
@@ -96,6 +100,27 @@ func (e *Event) FilePath() string {
 		return path
 	}
 	return ""
+}
+
+// SafeFilePath extracts and validates the file path from a file event.
+// Returns the cleaned path and true if valid, or empty string and false if invalid.
+// This method protects against path traversal attacks by rejecting paths that
+// attempt to escape the working directory.
+func (e *Event) SafeFilePath() (string, bool) {
+	path := e.FilePath()
+	if path == "" {
+		return "", false
+	}
+
+	// Clean the path to normalize it
+	cleaned := filepath.Clean(path)
+
+	// Reject paths that try to escape (after cleaning, shouldn't start with ..)
+	if strings.HasPrefix(cleaned, "..") {
+		return "", false
+	}
+
+	return cleaned, true
 }
 
 // Command extracts the command from a bash/build/test event

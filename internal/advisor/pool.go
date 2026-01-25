@@ -85,9 +85,9 @@ func (p *Pool) Add(advisor *Advisor) error {
 
 	p.advisors[id] = advisor
 
-	// Notify listeners
+	// Notify listeners synchronously (they should be fast callbacks)
 	for _, listener := range p.listeners {
-		go listener.OnAdvisorAdded(advisor)
+		listener.OnAdvisorAdded(advisor)
 	}
 
 	return nil
@@ -106,9 +106,9 @@ func (p *Pool) Remove(id string) error {
 
 	delete(p.advisors, id)
 
-	// Notify listeners
+	// Notify listeners synchronously (they should be fast callbacks)
 	for _, listener := range p.listeners {
-		go listener.OnAdvisorRemoved(id)
+		listener.OnAdvisorRemoved(id)
 	}
 
 	return nil
@@ -357,8 +357,9 @@ func (p *Pool) notifyInsight(insight *Insight) {
 	copy(listeners, p.listeners)
 	p.mu.RUnlock()
 
+	// Call listeners synchronously (they should be fast callbacks)
 	for _, listener := range listeners {
-		go listener.OnInsightGenerated(insight)
+		listener.OnInsightGenerated(insight)
 	}
 }
 
@@ -369,8 +370,9 @@ func (p *Pool) notifyStateChange(advisor *Advisor, oldState, newState AdvisorSta
 	copy(listeners, p.listeners)
 	p.mu.RUnlock()
 
+	// Call listeners synchronously (they should be fast callbacks)
 	for _, listener := range listeners {
-		go listener.OnAdvisorStateChanged(advisor, oldState, newState)
+		listener.OnAdvisorStateChanged(advisor, oldState, newState)
 	}
 }
 
@@ -381,8 +383,9 @@ func (p *Pool) Clear() {
 
 	for id := range p.advisors {
 		delete(p.advisors, id)
+		// Call listeners synchronously (they should be fast callbacks)
 		for _, listener := range p.listeners {
-			go listener.OnAdvisorRemoved(id)
+			listener.OnAdvisorRemoved(id)
 		}
 	}
 }

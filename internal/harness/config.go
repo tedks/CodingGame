@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config holds the configuration for starting a harness
@@ -98,6 +99,18 @@ func (c Config) ForAdvisor(advisorID string) Config {
 	return c
 }
 
+// dangerousEnvVars lists environment variables that should not be overridden
+// for security reasons when spawning subprocesses.
+var dangerousEnvVars = map[string]bool{
+	"LD_PRELOAD":            true,
+	"LD_LIBRARY_PATH":       true,
+	"DYLD_INSERT_LIBRARIES": true,
+	"DYLD_LIBRARY_PATH":     true,
+	"PATH":                  true,
+	"HOME":                  true,
+	"USER":                  true,
+}
+
 // Validate checks that the config is valid
 func (c Config) Validate() error {
 	if c.WorkingDir == "" {
@@ -117,6 +130,18 @@ func (c Config) Validate() error {
 	// Zero means "use default" and is always allowed.
 	if c.Temperature != 0 && (c.Temperature < 0 || c.Temperature > 1) {
 		return fmt.Errorf("temperature must be between 0 and 1, got %f", c.Temperature)
+	}
+
+	// Validate environment variables
+	for key := range c.Env {
+		// Check for dangerous environment variables
+		if dangerousEnvVars[strings.ToUpper(key)] {
+			return fmt.Errorf("environment variable %q is not allowed for security reasons", key)
+		}
+		// Check for invalid characters in variable name
+		if strings.ContainsAny(key, "\x00\n\r=") {
+			return fmt.Errorf("invalid characters in environment variable name: %q", key)
+		}
 	}
 
 	return nil

@@ -115,6 +115,17 @@ func (p *Parser) parseEvent(raw map[string]interface{}) *harness.Event {
 				event = event.WithToolOutput(k, v)
 			}
 		}
+
+	case harness.EventError:
+		// Extract error message if available
+		if msg, ok := raw["message"].(string); ok {
+			event = event.WithText(msg)
+		}
+		if errData, ok := raw["error"].(map[string]interface{}); ok {
+			if msg, ok := errData["message"].(string); ok {
+				event = event.WithText(msg)
+			}
+		}
 	}
 
 	built := event.Build()

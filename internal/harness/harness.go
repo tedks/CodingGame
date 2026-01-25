@@ -10,6 +10,7 @@ package harness
 import (
 	"context"
 	"io"
+	"sync"
 )
 
 // Harness represents an interface to an AI coding agent CLI.
@@ -72,6 +73,7 @@ type HarnessFactory func() Harness
 
 // BaseHarness provides common functionality for harness implementations
 type BaseHarness struct {
+	mu      sync.RWMutex
 	name    string
 	version string
 	running bool
@@ -106,11 +108,15 @@ func (b *BaseHarness) SetVersion(version string) {
 
 // IsRunning returns whether the harness is running
 func (b *BaseHarness) IsRunning() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.running
 }
 
 // SetRunning sets the running state
 func (b *BaseHarness) SetRunning(running bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.running = running
 }
 
