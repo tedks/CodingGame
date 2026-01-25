@@ -109,7 +109,6 @@ func TestIntegration_MultipleBuildings(t *testing.T) {
 			defer wg.Done()
 
 			b.StartBuild()
-			time.Sleep(time.Millisecond) // Simulate build time
 
 			result := &build.Result{
 				Success:      idx%2 == 0, // Alternate success/failure

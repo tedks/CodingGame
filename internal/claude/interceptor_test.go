@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"sync"
 	"testing"
 	"time"
 )
@@ -78,13 +77,9 @@ func TestStartStop(t *testing.T) {
 func TestEventTypes(t *testing.T) {
 	interceptor := New()
 
-	var receivedEvents []*Event
-	var mu sync.Mutex
-
+	eventsCh := make(chan *Event, 3)
 	handler := func(e *Event) {
-		mu.Lock()
-		defer mu.Unlock()
-		receivedEvents = append(receivedEvents, e)
+		eventsCh <- e
 	}
 
 	interceptor.AddHandler(handler)
@@ -99,24 +94,25 @@ func TestEventTypes(t *testing.T) {
 	interceptor.SimulateFileWrite("/file2.go")
 	interceptor.SimulateFileEdit("/file3.go")
 
-	// Wait for events to be processed
-	time.Sleep(100 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if len(receivedEvents) != 3 {
-		t.Errorf("expected 3 events, got %d", len(receivedEvents))
+	// Collect events with timeout
+	var receivedEvents []*Event
+	for i := 0; i < 3; i++ {
+		select {
+		case e := <-eventsCh:
+			receivedEvents = append(receivedEvents, e)
+		case <-time.After(1 * time.Second):
+			t.Fatalf("timeout waiting for event %d, got %d events", i+1, len(receivedEvents))
+		}
 	}
 
 	// Verify event types
-	if len(receivedEvents) >= 1 && receivedEvents[0].Type != EventFileRead {
+	if receivedEvents[0].Type != EventFileRead {
 		t.Errorf("expected first event to be FileRead, got %v", receivedEvents[0].Type)
 	}
-	if len(receivedEvents) >= 2 && receivedEvents[1].Type != EventFileWrite {
+	if receivedEvents[1].Type != EventFileWrite {
 		t.Errorf("expected second event to be FileWrite, got %v", receivedEvents[1].Type)
 	}
-	if len(receivedEvents) >= 3 && receivedEvents[2].Type != EventFileEdit {
+	if receivedEvents[2].Type != EventFileEdit {
 		t.Errorf("expected third event to be FileEdit, got %v", receivedEvents[2].Type)
 	}
 }
@@ -184,19 +180,21 @@ func TestInferEventType(t *testing.T) {
 func TestMultipleHandlers(t *testing.T) {
 	interceptor := New()
 
-	var handler1Called, handler2Called bool
-	var mu sync.Mutex
+	handler1Called := make(chan struct{}, 1)
+	handler2Called := make(chan struct{}, 1)
 
 	handler1 := func(e *Event) {
-		mu.Lock()
-		defer mu.Unlock()
-		handler1Called = true
+		select {
+		case handler1Called <- struct{}{}:
+		default:
+		}
 	}
 
 	handler2 := func(e *Event) {
-		mu.Lock()
-		defer mu.Unlock()
-		handler2Called = true
+		select {
+		case handler2Called <- struct{}{}:
+		default:
+		}
 	}
 
 	interceptor.AddHandler(handler1)
@@ -210,17 +208,14 @@ func TestMultipleHandlers(t *testing.T) {
 	// Simulate event
 	interceptor.SimulateFileRead("/file.go")
 
-	// Wait for event to be processed
-	time.Sleep(50 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if !handler1Called {
-		t.Error("expected handler1 to be called")
-	}
-	if !handler2Called {
-		t.Error("expected handler2 to be called")
+	// Wait for both handlers with timeout
+	for i, ch := range []chan struct{}{handler1Called, handler2Called} {
+		select {
+		case <-ch:
+			// Handler called
+		case <-time.After(1 * time.Second):
+			t.Errorf("timeout waiting for handler%d to be called", i+1)
+		}
 	}
 }
 

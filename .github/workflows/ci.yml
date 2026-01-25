@@ -47,7 +47,21 @@ jobs:
         run: |
           # Run tests with Go race detector enabled
           # This catches data races that may not manifest in normal test runs
-          nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --@io_bazel_rules_go//go/config:race'
+          nix develop --command bash -c '
+            set -euo pipefail
+
+            # First, verify race detection is actually enabled by running the verification test
+            # This test will fail if race detection is not working
+            echo "Verifying race detection is enabled..."
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //internal/testutil:testutil_test \
+              --test_filter=TestRaceDetectorMustBeEnabled \
+              --@io_bazel_rules_go//go/config:race \
+              --test_output=errors
+
+            # Now run all tests with race detection
+            echo "Running full test suite with race detection..."
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --@io_bazel_rules_go//go/config:race
+          '
 
       - name: Upload screenshots
         if: always()
@@ -100,16 +114,29 @@ jobs:
           # Use bazel coverage which generates LCOV format
           # xvfb-run and lcov tools are in the Nix environment
           nix develop --command bash -c '
+            set -euo pipefail
+
             xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel coverage //... --combined_report=lcov
 
             # Copy the coverage report to workspace
-            cp $(bazel info output_path)/_coverage/_coverage_report.dat coverage.lcov
+            COVERAGE_FILE=$(bazel info output_path)/_coverage/_coverage_report.dat
+            if [[ ! -f "$COVERAGE_FILE" ]]; then
+              echo "ERROR: Coverage report not generated at $COVERAGE_FILE"
+              exit 1
+            fi
+            cp "$COVERAGE_FILE" coverage.lcov
+
+            # Verify coverage file is not empty
+            if [[ ! -s coverage.lcov ]]; then
+              echo "ERROR: Coverage file is empty"
+              exit 1
+            fi
 
             # Generate summary using lcov
             lcov --summary coverage.lcov 2>&1 | tee coverage-summary.txt
 
-            # Generate function-level report
-            lcov --list coverage.lcov > coverage-details.txt 2>&1 || true
+            # Generate function-level report (non-fatal if it fails)
+            lcov --list coverage.lcov > coverage-details.txt 2>&1 || echo "Warning: Could not generate detailed coverage list"
           '
 
       - name: Generate HTML report

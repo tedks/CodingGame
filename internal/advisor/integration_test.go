@@ -393,10 +393,7 @@ func TestIntegration_PoolStartStopWithBackgroundAdvisor(t *testing.T) {
 		t.Error("after Start(), IsRunning() = false")
 	}
 
-	// Let it run briefly
-	time.Sleep(50 * time.Millisecond)
-
-	// Stop pool
+	// Stop pool (tests clean start/stop lifecycle)
 	if err := pool.Stop(); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
