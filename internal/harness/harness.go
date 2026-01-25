@@ -9,7 +9,6 @@ package harness
 
 import (
 	"context"
-	"io"
 	"sync"
 )
 
@@ -109,9 +108,6 @@ type BaseHarness struct {
 	version string
 	running bool
 	events  chan Event
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
-	stderr  io.ReadCloser
 }
 
 // NewBaseHarness creates a new base harness with the given name

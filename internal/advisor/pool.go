@@ -495,7 +495,7 @@ func (p *Pool) RunAdvisor(ctx context.Context, advisor *Advisor, files []string)
 
 			case harness.EventError:
 				advisor.CompleteAnalysis(time.Since(startTime), tokensIn, tokensOut, event.Error)
-				return event.Error
+				return fmt.Errorf("advisor %q received error event: %w", advisor.ID(), event.Error)
 
 			default:
 				// Track token usage if available in raw data

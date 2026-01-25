@@ -17,6 +17,12 @@ import (
 	"github.com/tedks/CodingGame/internal/harness"
 )
 
+// Scanner buffer sizes for reading Claude JSON output
+const (
+	scannerInitBufSize = 64 * 1024   // 64KB initial buffer
+	scannerMaxBufSize  = 1024 * 1024 // 1MB max for large JSON messages
+)
+
 // ClaudeHarness implements the Harness interface for Claude Code CLI
 type ClaudeHarness struct {
 	*harness.BaseHarness
@@ -219,8 +225,8 @@ func (c *ClaudeHarness) readOutput() {
 
 	scanner := bufio.NewScanner(c.stdout)
 	// Increase buffer size for large JSON messages
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	buf := make([]byte, 0, scannerInitBufSize)
+	scanner.Buffer(buf, scannerMaxBufSize)
 
 	for scanner.Scan() {
 		// Check if we should stop

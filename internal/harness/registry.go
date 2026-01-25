@@ -220,7 +220,12 @@ type HarnessInfo struct {
 func (r *Registry) Info(name string) *HarnessInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	return r.infoUnlocked(name)
+}
 
+// infoUnlocked returns harness info without acquiring locks.
+// Caller must hold r.mu.RLock() or r.mu.Lock().
+func (r *Registry) infoUnlocked(name string) *HarnessInfo {
 	def, hasDef := r.defs[name]
 	_, hasFactory := r.factories[name]
 
@@ -262,7 +267,7 @@ func (r *Registry) AllInfo() []HarnessInfo {
 
 	infos := make([]HarnessInfo, 0, len(r.defs))
 	for name := range r.defs {
-		if info := r.Info(name); info != nil {
+		if info := r.infoUnlocked(name); info != nil {
 			infos = append(infos, *info)
 		}
 	}
