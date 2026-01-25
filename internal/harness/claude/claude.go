@@ -82,7 +82,7 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 		c.cmd.Env = append(c.cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// Set up pipes
+	// Set up pipes with cleanup on failure
 	var err error
 	c.stdin, err = c.cmd.StdinPipe()
 	if err != nil {
@@ -91,16 +91,22 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 
 	c.stdout, err = c.cmd.StdoutPipe()
 	if err != nil {
+		c.stdin.Close() // Cleanup stdin
 		return fmt.Errorf("creating stdout pipe: %w", err)
 	}
 
 	c.stderr, err = c.cmd.StderrPipe()
 	if err != nil {
+		c.stdin.Close()  // Cleanup stdin
+		c.stdout.Close() // Cleanup stdout
 		return fmt.Errorf("creating stderr pipe: %w", err)
 	}
 
 	// Start the process
 	if err := c.cmd.Start(); err != nil {
+		c.stdin.Close()
+		c.stdout.Close()
+		c.stderr.Close()
 		return fmt.Errorf("starting claude: %w", err)
 	}
 
@@ -130,8 +136,21 @@ func (c *ClaudeHarness) monitorProcess() {
 		return
 	}
 
-	// Wait for process to exit (blocks until exit)
-	c.cmd.Wait()
+	// Wait for process to exit and capture exit error
+	err := c.cmd.Wait()
+
+	// If process exited with error, notify consumers
+	if err != nil {
+		// Try to send error event (non-blocking in case channel is full)
+		select {
+		case c.EventsWritable() <- harness.NewEvent(harness.EventError).
+			WithError(fmt.Errorf("harness process exited: %w", err)).
+			WithSource("claude-code").
+			Build():
+		default:
+			// Channel full or closed, skip notification
+		}
+	}
 
 	// Signal done to unblock reader goroutines
 	c.mu.Lock()

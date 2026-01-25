@@ -52,6 +52,22 @@ type Config struct {
 	// If empty, uses the same harness as the main agent.
 	// This allows mixing advisors from different providers (e.g., a Claude advisor
 	// in a Codex project, or a specialized model advisor).
+	//
+	// Example: Use different models for different advisors:
+	//
+	//     // Security advisor uses Opus for thorough analysis
+	//     Config{
+	//         ID:           "security",
+	//         HarnessName:  "claude-code",
+	//         HarnessModel: "opus",
+	//     }
+	//
+	//     // Linting advisor uses Haiku for quick feedback
+	//     Config{
+	//         ID:           "linter",
+	//         HarnessName:  "claude-code",
+	//         HarnessModel: "haiku",
+	//     }
 	HarnessName string `json:"harness_name,omitempty"`
 
 	// HarnessModel specifies which model to use for this advisor.

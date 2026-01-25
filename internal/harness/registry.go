@@ -6,7 +6,17 @@ import (
 	"sync"
 )
 
-// Registry manages available harness implementations
+// Registry manages available harness implementations.
+//
+// # Thread Safety
+//
+// Registry is safe for concurrent use. All methods acquire appropriate locks:
+//   - Register() and RegisterWithDefinition() acquire write locks
+//   - Create(), Available(), Defined(), and Info() acquire read locks
+//
+// It is safe to call Create() concurrently with Register(), though a harness
+// registered during a concurrent Create() call may not be immediately visible.
+// For deterministic behavior, complete all Register() calls before calling Create().
 type Registry struct {
 	mu        sync.RWMutex
 	factories map[string]HarnessFactory
