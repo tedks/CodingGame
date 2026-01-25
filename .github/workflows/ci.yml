@@ -71,3 +71,116 @@ jobs:
               exit 1
             fi
           '
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: cachix/cachix-action@v15
+        with:
+          name: devenv
+          skipPush: true
+
+      - name: Generate .bazelrc.user
+        run: |
+          nix develop --command bash -c './scripts/gen-bazelrc-user.sh'
+
+      - name: Install xvfb
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Generate coverage report
+        run: |
+          nix develop --command bash -c './scripts/coverage.sh'
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.txt
+          retention-days: 30
+
+      - name: Post coverage summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const coverage = fs.readFileSync('coverage.txt', 'utf8');
+
+            // Extract total and low-coverage files
+            const lines = coverage.split('\n');
+            const totalLine = lines.find(l => l.startsWith('total:'));
+            const total = totalLine ? totalLine.split(/\s+/).pop() : 'unknown';
+
+            // Find functions with 0% coverage
+            const zeroCoverage = lines
+              .filter(l => l.endsWith('0.0%'))
+              .slice(0, 10)
+              .map(l => '- `' + l.split('\t')[1] + '`')
+              .join('\n');
+
+            // Find files with low coverage (< 50%)
+            const lowCoverage = lines
+              .filter(l => {
+                const match = l.match(/(\d+\.\d+)%$/);
+                return match && parseFloat(match[1]) < 50 && parseFloat(match[1]) > 0;
+              })
+              .slice(0, 10)
+              .map(l => {
+                const parts = l.split('\t');
+                return `- \`${parts[1]}\`: ${parts[2]}`;
+              })
+              .join('\n');
+
+            let body = `## 📊 Test Coverage Report\n\n`;
+            body += `**Total Coverage: ${total}**\n\n`;
+
+            if (zeroCoverage) {
+              body += `<details>\n<summary>Functions with 0% coverage (first 10)</summary>\n\n${zeroCoverage}\n</details>\n\n`;
+            }
+
+            if (lowCoverage) {
+              body += `<details>\n<summary>Functions with low coverage (<50%, first 10)</summary>\n\n${lowCoverage}\n</details>\n\n`;
+            }
+
+            body += `\n<sub>Full report available in workflow artifacts</sub>`;
+
+            // Find existing coverage comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Test Coverage Report')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
