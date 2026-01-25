@@ -34,15 +34,12 @@ jobs:
         run: |
           nix develop --command bazel build //...
 
-      - name: Install xvfb
-        run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
-
       - name: Test
         env:
           CODINGGAME_SCREENSHOT_DIR: /tmp/codinggame-screenshots
           CODINGGAME_SAVE_SCREENSHOTS: "1"
         run: |
+          # xvfb-run is included in the Nix environment for headless GUI tests
           # Screenshot directory is created by test code via NewCapturer/ScreenshotDir
           nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
 
@@ -95,21 +92,38 @@ jobs:
         run: |
           nix develop --command bash -c './scripts/gen-bazelrc-user.sh'
 
-      - name: Install xvfb
-        run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
-
       - name: Generate coverage report
         run: |
-          nix develop --command bash -c './scripts/coverage.sh'
+          # Use bazel coverage which generates LCOV format
+          # xvfb-run and lcov tools are in the Nix environment
+          nix develop --command bash -c '
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel coverage //... --combined_report=lcov
+
+            # Copy the coverage report to workspace
+            cp $(bazel info output_path)/_coverage/_coverage_report.dat coverage.lcov
+
+            # Generate summary using lcov
+            lcov --summary coverage.lcov 2>&1 | tee coverage-summary.txt
+
+            # Generate function-level report
+            lcov --list coverage.lcov > coverage-details.txt 2>&1 || true
+          '
+
+      - name: Generate HTML report
+        run: |
+          nix develop --command bash -c '
+            genhtml coverage.lcov --output-directory coverage-html --ignore-errors source
+          '
 
       - name: Upload coverage artifacts
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: |
-            coverage.out
-            coverage.txt
+            coverage.lcov
+            coverage-summary.txt
+            coverage-details.txt
+            coverage-html/
           retention-days: 30
 
       - name: Post coverage summary to PR
@@ -118,45 +132,31 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const coverage = fs.readFileSync('coverage.txt', 'utf8');
 
-            // Extract total and low-coverage files
-            const lines = coverage.split('\n');
-            const totalLine = lines.find(l => l.startsWith('total:'));
-            const total = totalLine ? totalLine.split(/\s+/).pop() : 'unknown';
+            // Read coverage summary
+            let summary = '';
+            try {
+              summary = fs.readFileSync('coverage-summary.txt', 'utf8');
+            } catch (e) {
+              summary = 'Coverage summary not available';
+            }
 
-            // Find functions with 0% coverage
-            const zeroCoverage = lines
-              .filter(l => l.endsWith('0.0%'))
-              .slice(0, 10)
-              .map(l => '- `' + l.split('\t')[1] + '`')
-              .join('\n');
+            // Extract line coverage percentage
+            const lineMatch = summary.match(/lines[^:]*:\s*([\d.]+)%/i);
+            const lineCoverage = lineMatch ? lineMatch[1] + '%' : 'unknown';
 
-            // Find files with low coverage (< 50%)
-            const lowCoverage = lines
-              .filter(l => {
-                const match = l.match(/(\d+\.\d+)%$/);
-                return match && parseFloat(match[1]) < 50 && parseFloat(match[1]) > 0;
-              })
-              .slice(0, 10)
-              .map(l => {
-                const parts = l.split('\t');
-                return `- \`${parts[1]}\`: ${parts[2]}`;
-              })
-              .join('\n');
+            // Extract function coverage percentage
+            const funcMatch = summary.match(/functions[^:]*:\s*([\d.]+)%/i);
+            const funcCoverage = funcMatch ? funcMatch[1] + '%' : 'unknown';
 
             let body = `## 📊 Test Coverage Report\n\n`;
-            body += `**Total Coverage: ${total}**\n\n`;
+            body += `| Metric | Coverage |\n`;
+            body += `|--------|----------|\n`;
+            body += `| Lines | ${lineCoverage} |\n`;
+            body += `| Functions | ${funcCoverage} |\n\n`;
 
-            if (zeroCoverage) {
-              body += `<details>\n<summary>Functions with 0% coverage (first 10)</summary>\n\n${zeroCoverage}\n</details>\n\n`;
-            }
-
-            if (lowCoverage) {
-              body += `<details>\n<summary>Functions with low coverage (<50%, first 10)</summary>\n\n${lowCoverage}\n</details>\n\n`;
-            }
-
-            body += `\n<sub>Full report available in workflow artifacts</sub>`;
+            body += `<details>\n<summary>Full summary</summary>\n\n\`\`\`\n${summary}\n\`\`\`\n</details>\n\n`;
+            body += `\n<sub>Full HTML report available in workflow artifacts</sub>`;
 
             // Find existing coverage comment
             const { data: comments } = await github.rest.issues.listComments({
