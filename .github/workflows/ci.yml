@@ -34,15 +34,23 @@ jobs:
         run: |
           nix develop --command bazel build //...
 
+      - name: Install xvfb
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Test
         env:
           CODINGGAME_SCREENSHOT_DIR: /tmp/codinggame-screenshots
           CODINGGAME_SAVE_SCREENSHOTS: "1"
         run: |
-          # Install xvfb for headless X11 tests
-          sudo apt-get update && sudo apt-get install -y xvfb
           # Screenshot directory is created by test code via NewCapturer/ScreenshotDir
           nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
+
+      - name: Race detection tests
+        run: |
+          # Run tests with Go race detector enabled
+          # This catches data races that may not manifest in normal test runs
+          nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --@io_bazel_rules_go//go/config:race'
 
       - name: Upload screenshots
         if: always()
