@@ -76,8 +76,9 @@ type GameScene struct {
 	onPromptSubmit func(text string) // Called when a prompt is submitted
 
 	// Input state
-	lastMouseX int
-	lastMouseY int
+	lastMouseX      int
+	lastMouseY      int
+	wasMousePressed bool
 }
 
 // NewGameScene creates a new game scene for the given project.
@@ -143,7 +144,7 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 
 	// Initialize prompt panel
 	promptPanel := ui.NewPromptPanel(width)
-	promptPanel.SetPosition(0, height-PromptPanelHeight)
+	promptPanel.SetScreenHeight(height)
 
 	gs := &GameScene{
 		projectPath:            projectPath,
@@ -365,6 +366,12 @@ func (gs *GameScene) handleHarnessEvent(event *harness.Event) {
 		// Handle advisor/subagent execution
 		gs.handleHarnessAdvisorEvent(event)
 
+	case harness.EventText:
+		// Display response text in prompt panel
+		if event.Text != "" {
+			gs.promptPanel.SetResponseText(event.Text)
+		}
+
 	case harness.EventTurnComplete:
 		// Reset prompt panel to idle when turn completes
 		gs.promptPanel.SetState(ui.PromptStateIdle)
@@ -429,14 +436,72 @@ func (gs *GameScene) resolveFilePath(path string) string {
 	return filepath.Join(gs.projectPath, path)
 }
 
+// handlePromptPanelDrag handles mouse drag for resizing the prompt panel.
+// Returns true if the prompt panel consumed the input.
+func (gs *GameScene) handlePromptPanelDrag() bool {
+	x, y := ebiten.CursorPosition()
+	consumed := false
+
+	// Handle mouse wheel scrolling
+	_, wheelY := ebiten.Wheel()
+	if wheelY != 0 && gs.promptPanel.HandleScroll(x, y, 0, wheelY) {
+		consumed = true
+	}
+
+	// Check for mouse button state
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		if gs.promptPanel.IsDragging() {
+			// Continue dragging
+			gs.promptPanel.UpdateDrag(y)
+			consumed = true
+		} else if gs.promptPanel.IsOnDragHandle(x, y) {
+			// Start dragging
+			gs.promptPanel.StartDrag(y)
+			consumed = true
+		} else if gs.promptPanel.ContainsPoint(x, y) {
+			// Mouse is over panel but not dragging
+			consumed = true
+		}
+	} else {
+		// End dragging if mouse released
+		if gs.promptPanel.IsDragging() {
+			gs.promptPanel.EndDrag()
+		}
+
+		// Handle click on mouse release (detect click by checking if we just released)
+		if gs.wasMousePressed && !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+			if gs.promptPanel.HandleClick(x, y) {
+				consumed = true
+			}
+		}
+	}
+
+	// Track mouse pressed state for click detection
+	gs.wasMousePressed = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	// Update last mouse position
+	gs.lastMouseX = x
+	gs.lastMouseY = y
+
+	return consumed
+}
+
 // Update implements ui.Scene.
 func (gs *GameScene) Update() (ui.Scene, error) {
+	// Handle prompt panel mouse interactions first
+	// Returns true if the prompt panel consumed the input
+	promptConsumedInput := gs.handlePromptPanelDrag()
+
+	// Disable map mouse input when prompt panel is consuming input
+	gs.mapView.SetMouseInputEnabled(!promptConsumedInput)
+
 	// Update input handler (processes all keybindings)
 	gs.inputHandler.Update()
 
 	// Handle navigation based on current mode and focus
 	// Navigation only works when focused on map and in Normal mode
-	if gs.inputHandler.Focus() == input.FocusMap {
+	// Skip if prompt panel is handling input
+	if gs.inputHandler.Focus() == input.FocusMap && !promptConsumedInput {
 		// Use the input handler's action checks for continuous movement
 		if gs.inputHandler.IsActionHeld(input.ActionMoveLeft) {
 			gs.mapView.Pan(-PanSpeed, 0)
