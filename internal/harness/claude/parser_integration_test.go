@@ -73,7 +73,8 @@ func TestParserAssistantWithToolUse(t *testing.T) {
 	}
 }
 
-// Test that assistant message with end_turn stop_reason is turn complete
+// Test that assistant message with end_turn stop_reason still emits text event
+// (turn_complete comes from the separate "result" message)
 func TestParserAssistantEndTurn(t *testing.T) {
 	events := make(chan harness.Event, 10)
 	parser := NewParser(events)
@@ -84,8 +85,13 @@ func TestParserAssistantEndTurn(t *testing.T) {
 
 	select {
 	case event := <-events:
-		if event.Type != harness.EventTurnComplete {
-			t.Errorf("Type = %v, want EventTurnComplete", event.Type)
+		// Assistant messages always emit EventText, even with stop_reason
+		// The turn_complete comes from the separate "result" message
+		if event.Type != harness.EventText {
+			t.Errorf("Type = %v, want EventText", event.Type)
+		}
+		if event.Text != "Done!" {
+			t.Errorf("Text = %q, want 'Done!'", event.Text)
 		}
 	case <-time.After(time.Second):
 		t.Error("Timeout waiting for event")

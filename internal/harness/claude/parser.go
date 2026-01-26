@@ -94,11 +94,31 @@ func (p *Parser) parseEvent(raw map[string]interface{}) *harness.Event {
 		p.extractCommand(event, raw)
 
 	case harness.EventText:
+		// Try direct text field
 		if text, ok := raw["text"].(string); ok {
 			event = event.WithText(text)
 		}
+		// Try direct content field (string)
 		if content, ok := raw["content"].(string); ok {
 			event = event.WithText(content)
+		}
+		// Try assistant message format: message.content[].text
+		if message, ok := raw["message"].(map[string]interface{}); ok {
+			if contentBlocks, ok := message["content"].([]interface{}); ok {
+				var textParts []string
+				for _, block := range contentBlocks {
+					if blockMap, ok := block.(map[string]interface{}); ok {
+						if blockType, _ := blockMap["type"].(string); blockType == "text" {
+							if text, ok := blockMap["text"].(string); ok {
+								textParts = append(textParts, text)
+							}
+						}
+					}
+				}
+				if len(textParts) > 0 {
+					event = event.WithText(strings.Join(textParts, "\n"))
+				}
+			}
 		}
 
 	case harness.EventSubagentRun:
@@ -165,11 +185,8 @@ func (p *Parser) inferEventType(raw map[string]interface{}) harness.EventType {
 						}
 					}
 				}
-				// Check stop_reason for turn complete
-				if stopReason, ok := message["stop_reason"].(string); ok && stopReason == "end_turn" {
-					return harness.EventTurnComplete
-				}
 			}
+			// Always treat assistant messages as text (the result message handles turn_complete)
 			return harness.EventText
 		case "result":
 			// Result message indicates turn complete
