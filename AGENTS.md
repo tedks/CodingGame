@@ -377,6 +377,57 @@ While Go modules work, they bypass our hermetic build system:
 - Handle errors explicitly, don't ignore them
 - Keep goroutines and channels simple and obvious
 
+### Integration Testing Requirements
+
+**CRITICAL**: When connecting two components with a callback, event channel, or any other integration point, you MUST write a test that verifies the integration works end-to-end.
+
+**The Anti-Pattern That Fails:**
+1. Build Component A (e.g., harness) and test it in isolation
+2. Build Component B (e.g., GameScene callbacks) and test it in isolation
+3. Connect A to B with a callback or wire-up code
+4. **Skip testing that the connection actually works**
+5. Ship broken code that passes all unit tests
+
+**The Required Pattern:**
+1. Create a **MockHarness** or equivalent test double that records interactions
+2. Write tests that:
+   - Inject the mock into the real component
+   - Trigger the user-facing action (e.g., submit a prompt)
+   - **Verify the mock received the expected call**
+
+**Example - Testing Prompt Submission:**
+```go
+func TestGameScene_PromptSentToHarness(t *testing.T) {
+    // Create mock that records prompts
+    mock := harness.NewMockHarness()
+
+    // Inject mock into real component
+    scene := NewGameScene(...)
+    registry := harness.NewRegistry()
+    registry.Register("mock", func() harness.Harness { return mock })
+    scene.SetHarnessRegistry(registry)
+    scene.SetConfig(ui.GameConfig{Harness: "mock"})
+
+    // Trigger the user action
+    scene.onPromptSubmit("test prompt")
+
+    // CRITICAL: Verify the integration worked
+    if mock.LastPrompt() != "test prompt" {
+        t.Fatal("Prompt never reached harness - integration is broken")
+    }
+}
+```
+
+**When to Apply This Rule:**
+- Callback wiring: `component.OnFoo = func() { other.Bar() }`
+- Event channels: goroutine reads from channel and calls handler
+- Dependency injection: component receives interface, calls methods on it
+- Any "glue code" that connects two systems
+
+**The Mock Should Live in the Package:**
+- `internal/harness/mock.go` - `MockHarness` for testing harness consumers
+- Not just in test files - make it available to other packages' tests
+
 ### Package Structure
 
 | Package | Purpose |

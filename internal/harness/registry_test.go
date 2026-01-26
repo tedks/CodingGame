@@ -5,47 +5,10 @@ import (
 	"testing"
 )
 
-// MockHarness is a test harness implementation
-type MockHarness struct {
-	*BaseHarness
-	startCalled bool
-	stopCalled  bool
-	lastPrompt  string
-}
-
-func NewMockHarness() Harness {
-	return &MockHarness{
-		BaseHarness: NewBaseHarness("mock"),
-	}
-}
-
-func (m *MockHarness) Start(ctx context.Context, config Config) error {
-	m.startCalled = true
-	m.SetRunning(true)
-	return nil
-}
-
-func (m *MockHarness) Stop() error {
-	m.stopCalled = true
-	m.SetRunning(false)
-	m.CloseEvents()
-	return nil
-}
-
-func (m *MockHarness) SendPrompt(prompt string) error {
-	m.lastPrompt = prompt
-	return nil
-}
-
-func (m *MockHarness) Capabilities() Capabilities {
-	return Capabilities{
-		SupportedModels: []Model{
-			{ID: "test", Name: "Test Model", Default: true},
-		},
-		SupportsHooks:     true,
-		SupportsMCP:       true,
-		SupportsStreaming: true,
-	}
+// mockHarnessFactory returns a factory function for creating MockHarness instances.
+// This is used for registry tests that need a HarnessFactory.
+func mockHarnessFactory() Harness {
+	return NewMockHarness()
 }
 
 func TestNewRegistry(t *testing.T) {
@@ -65,7 +28,7 @@ func TestNewRegistry(t *testing.T) {
 func TestRegistryRegister(t *testing.T) {
 	r := NewRegistry()
 
-	r.Register("mock", NewMockHarness)
+	r.Register("mock", mockHarnessFactory)
 
 	if !r.IsRegistered("mock") {
 		t.Error("mock should be registered")
@@ -77,7 +40,7 @@ func TestRegistryRegister(t *testing.T) {
 
 func TestRegistryCreate(t *testing.T) {
 	r := NewRegistry()
-	r.Register("mock", NewMockHarness)
+	r.Register("mock", mockHarnessFactory)
 
 	h, err := r.Create("mock")
 	if err != nil {
@@ -100,8 +63,8 @@ func TestRegistryCreateUnknown(t *testing.T) {
 
 func TestRegistryAvailable(t *testing.T) {
 	r := NewRegistry()
-	r.Register("mock1", NewMockHarness)
-	r.Register("mock2", NewMockHarness)
+	r.Register("mock1", mockHarnessFactory)
+	r.Register("mock2", mockHarnessFactory)
 
 	available := r.Available()
 	if len(available) != 2 {
@@ -153,7 +116,7 @@ func TestRegistryRegisterWithDefinition(t *testing.T) {
 		},
 	}
 
-	r.RegisterWithDefinition(def, NewMockHarness)
+	r.RegisterWithDefinition(def, mockHarnessFactory)
 
 	if !r.IsRegistered("custom") {
 		t.Error("custom should be registered")
@@ -202,7 +165,7 @@ func TestRegistryDefaultModel(t *testing.T) {
 
 func TestRegistryInfo(t *testing.T) {
 	r := NewRegistry()
-	r.Register("claude-code", NewMockHarness)
+	r.Register("claude-code", mockHarnessFactory)
 
 	info := r.Info("claude-code")
 	if info == nil {
@@ -231,7 +194,7 @@ func TestRegistryInfoUnknown(t *testing.T) {
 
 func TestRegistryAllInfo(t *testing.T) {
 	r := NewRegistry()
-	r.Register("claude-code", NewMockHarness)
+	r.Register("claude-code", mockHarnessFactory)
 
 	infos := r.AllInfo()
 	if len(infos) == 0 {
@@ -306,7 +269,7 @@ func TestBaseHarness(t *testing.T) {
 }
 
 func TestMockHarnessLifecycle(t *testing.T) {
-	h := NewMockHarness().(*MockHarness)
+	h := NewMockHarness()
 
 	if h.IsRunning() {
 		t.Error("Should not be running initially")
@@ -317,9 +280,6 @@ func TestMockHarnessLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if !h.startCalled {
-		t.Error("Start() should set startCalled")
-	}
 	if !h.IsRunning() {
 		t.Error("Should be running after Start()")
 	}
@@ -328,16 +288,13 @@ func TestMockHarnessLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendPrompt() error = %v", err)
 	}
-	if h.lastPrompt != "test prompt" {
-		t.Errorf("lastPrompt = %q, want 'test prompt'", h.lastPrompt)
+	if h.LastPrompt() != "test prompt" {
+		t.Errorf("LastPrompt() = %q, want 'test prompt'", h.LastPrompt())
 	}
 
 	err = h.Stop()
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
-	}
-	if !h.stopCalled {
-		t.Error("Stop() should set stopCalled")
 	}
 	if h.IsRunning() {
 		t.Error("Should not be running after Stop()")
