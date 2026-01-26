@@ -426,6 +426,59 @@ While Go modules work, they bypass our hermetic build system:
 - **WaitGroup for goroutine tracking**: Track all spawned goroutines so `Stop()` can wait for them
 - **Mutex for shared state**: Protect all shared mutable state with a mutex; document what it covers
 
+**PROHIBITION: Avoid `time.Sleep()` for synchronization**
+
+`time.Sleep()` is almost never the right synchronization primitive. It creates race conditions, flaky tests, and wastes time. Before using sleep, you MUST demonstrate that all alternatives have been eliminated:
+
+1. **Channel signaling**: Use a channel to signal completion
+   ```go
+   // BAD: Sleep and hope
+   go doWork()
+   time.Sleep(100 * time.Millisecond)
+   checkResult()
+
+   // GOOD: Wait for signal
+   done := make(chan struct{})
+   go func() { doWork(); close(done) }()
+   <-done
+   checkResult()
+   ```
+
+2. **WaitGroup**: Use `sync.WaitGroup` for multiple goroutines
+   ```go
+   // BAD
+   for i := 0; i < 10; i++ { go work(i) }
+   time.Sleep(time.Second)
+
+   // GOOD
+   var wg sync.WaitGroup
+   for i := 0; i < 10; i++ {
+       wg.Add(1)
+       go func(n int) { defer wg.Done(); work(n) }(i)
+   }
+   wg.Wait()
+   ```
+
+3. **Condition variables**: Use `sync.Cond` for complex waiting conditions
+
+4. **Context with timeout**: Use `context.WithTimeout` for deadline-based waiting
+
+**Acceptable uses of sleep** (must document why alternatives don't work):
+- Testing time-based features (e.g., "highlight expires after 100ms")
+- Polling external systems with no callback mechanism (e.g., file system watchers)
+- Rate limiting or backoff (but prefer `time.Ticker` or `time.After` in select)
+- Intentional chaos injection in stress tests (use `time.Microsecond`)
+
+When sleep is genuinely required, use `select` with `time.After` so the wait can be cancelled:
+```go
+select {
+case <-done:
+    return
+case <-time.After(100 * time.Millisecond):
+    // timeout handling
+}
+```
+
 **When fixing a concurrency bug:**
 
 Before committing the fix, search for the same pattern elsewhere:
@@ -637,6 +690,7 @@ For PRs that introduce goroutines, channels, or mutexes, verify:
 - [ ] **Send on closed channel**: Can any goroutine send after channel is closed?
 - [ ] **Missing mutex**: Is all shared mutable state protected?
 - [ ] **Deadlock potential**: Can goroutines block waiting for each other?
+- [ ] **Sleep for synchronization**: Is `time.Sleep()` used instead of proper synchronization? (channels, WaitGroup, etc.)
 
 **Testing requirements:**
 - [ ] Race detector passes: `bazel test --@io_bazel_rules_go//go/config:race //...`
