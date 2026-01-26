@@ -10,8 +10,8 @@ func TestNewPromptPanel(t *testing.T) {
 	if p.Width != 800 {
 		t.Errorf("Width = %d, want 800", p.Width)
 	}
-	if p.Height != 60 {
-		t.Errorf("Height = %d, want 60", p.Height)
+	if p.Height() != MinPanelHeight {
+		t.Errorf("Height() = %d, want %d", p.Height(), MinPanelHeight)
 	}
 	if p.State != PromptStateIdle {
 		t.Errorf("initial State = %v, want PromptStateIdle", p.State)
@@ -26,25 +26,30 @@ func TestNewPromptPanel(t *testing.T) {
 
 func TestPromptPanel_SetPosition(t *testing.T) {
 	p := NewPromptPanel(800)
-	p.SetPosition(100, 200)
+	p.SetScreenHeight(600)
+	p.SetPosition(100, 200) // Y is now calculated dynamically
 
 	if p.X != 100 {
 		t.Errorf("X = %d, want 100", p.X)
 	}
-	if p.Y != 200 {
-		t.Errorf("Y = %d, want 200", p.Y)
+	// Y is calculated based on screen height after Update()
+	p.Update()
+	expectedY := 600 - p.Height() // screenHeight - currentHeight
+	if p.Y != expectedY {
+		t.Errorf("Y = %d, want %d (calculated from screen height)", p.Y, expectedY)
 	}
 }
 
 func TestPromptPanel_SetSize(t *testing.T) {
 	p := NewPromptPanel(800)
-	p.SetSize(1024, 80)
+	p.SetSize(1024, 80) // Height parameter is ignored (dynamic)
 
 	if p.Width != 1024 {
 		t.Errorf("Width = %d, want 1024", p.Width)
 	}
-	if p.Height != 80 {
-		t.Errorf("Height = %d, want 80", p.Height)
+	// Height is dynamic and not set by SetSize
+	if p.Height() != MinPanelHeight {
+		t.Errorf("Height() = %d, want %d (height is dynamic)", p.Height(), MinPanelHeight)
 	}
 }
 
