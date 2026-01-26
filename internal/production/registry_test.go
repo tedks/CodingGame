@@ -3,6 +3,7 @@ package production
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 // mockDiscoverer is a test discoverer that returns configured services.
@@ -195,10 +196,13 @@ func TestRegistryCountByHealth(t *testing.T) {
 func TestRegistryListener(t *testing.T) {
 	r := NewRegistry()
 
-	var notifiedServices []*Service
+	listenerCalled := make(chan []*Service, 1)
 	listener := &testListener{
 		onChanged: func(services []*Service) {
-			notifiedServices = services
+			select {
+			case listenerCalled <- services:
+			default:
+			}
 		},
 	}
 	r.AddListener(listener)
@@ -212,11 +216,14 @@ func TestRegistryListener(t *testing.T) {
 	r.RegisterDiscoverer(mock)
 	r.Refresh()
 
-	// Give goroutine time to run
-	// In production code we'd use proper synchronization
-	if len(notifiedServices) == 0 {
-		// Listener was called asynchronously, this is expected behavior
-		// The actual notification happens in a goroutine
+	// Wait for listener to be called with timeout
+	select {
+	case services := <-listenerCalled:
+		if len(services) != 1 {
+			t.Errorf("expected 1 service, got %d", len(services))
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("listener was not called within timeout")
 	}
 }
 

@@ -428,6 +428,119 @@ func TestGameScene_PromptSentToHarness(t *testing.T) {
 - `internal/harness/mock.go` - `MockHarness` for testing harness consumers
 - Not just in test files - make it available to other packages' tests
 
+### Writing Concurrent Code
+
+**Before writing any concurrent code**, you MUST document the concurrency design. This prevents the pattern of retrofitting synchronization after bugs are found.
+
+**Required documentation (in code comments or PR description):**
+
+1. **Goroutine inventory**: List all goroutines, their purpose, and lifecycle
+   ```go
+   // Goroutines:
+   // - readOutput: reads stdout, owned by Start(), exits when stdout closes
+   // - readErrors: reads stderr, owned by Start(), exits when stderr closes
+   // - monitorProcess: watches for crash, owned by Start(), exits when process exits
+   ```
+
+2. **Channel ownership**: For each channel, document who creates, writes, reads, and closes
+   ```go
+   // Channel: events (chan Event, buffered 100)
+   // - Created by: NewHarness()
+   // - Writers: readOutput, readErrors (via EventsWritable())
+   // - Readers: external consumer (via Events())
+   // - Closed by: monitorProcess or Stop(), protected by sync.Once
+   ```
+
+3. **Mutex coverage**: Document which fields each mutex protects
+   ```go
+   // mu protects: running, cmd, stdin, stdout, stderr, cancelFunc
+   // (events channel has its own closeOnce protection)
+   ```
+
+4. **Shutdown ordering**: Document the sequence for graceful shutdown
+   ```go
+   // Shutdown sequence:
+   // 1. Signal done channel (unblocks goroutines waiting on select)
+   // 2. Cancel context (signals subprocess to exit)
+   // 3. Close stdin (sends EOF to subprocess)
+   // 4. Close stdout/stderr (unblocks scanner goroutines)
+   // 5. Wait for monitorProcess (which calls cmd.Wait())
+   // 6. Wait for reader goroutines (wg.Wait())
+   // 7. Close events channel (sync.Once prevents double-close)
+   ```
+
+**Concurrency patterns to follow:**
+
+- **Single owner for cmd.Wait()**: Only one goroutine should call `cmd.Wait()` on a process
+- **sync.Once for channel close**: Always use `sync.Once` when multiple code paths might close a channel
+- **done channel for shutdown signaling**: Use a `done` channel with `select` to allow goroutines to exit gracefully
+- **WaitGroup for goroutine tracking**: Track all spawned goroutines so `Stop()` can wait for them
+- **Mutex for shared state**: Protect all shared mutable state with a mutex; document what it covers
+
+**PROHIBITION: Avoid `time.Sleep()` for synchronization**
+
+`time.Sleep()` is almost never the right synchronization primitive. It creates race conditions, flaky tests, and wastes time. Before using sleep, you MUST demonstrate that all alternatives have been eliminated:
+
+1. **Channel signaling**: Use a channel to signal completion
+   ```go
+   // BAD: Sleep and hope
+   go doWork()
+   time.Sleep(100 * time.Millisecond)
+   checkResult()
+
+   // GOOD: Wait for signal
+   done := make(chan struct{})
+   go func() { doWork(); close(done) }()
+   <-done
+   checkResult()
+   ```
+
+2. **WaitGroup**: Use `sync.WaitGroup` for multiple goroutines
+   ```go
+   // BAD
+   for i := 0; i < 10; i++ { go work(i) }
+   time.Sleep(time.Second)
+
+   // GOOD
+   var wg sync.WaitGroup
+   for i := 0; i < 10; i++ {
+       wg.Add(1)
+       go func(n int) { defer wg.Done(); work(n) }(i)
+   }
+   wg.Wait()
+   ```
+
+3. **Condition variables**: Use `sync.Cond` for complex waiting conditions
+
+4. **Context with timeout**: Use `context.WithTimeout` for deadline-based waiting
+
+**Acceptable uses of sleep** (must document why alternatives don't work):
+- Testing time-based features (e.g., "highlight expires after 100ms")
+- Polling external systems with no callback mechanism (e.g., file system watchers)
+- Rate limiting or backoff (but prefer `time.Ticker` or `time.After` in select)
+- Intentional chaos injection in stress tests (use `time.Microsecond`)
+
+When sleep is genuinely required, use `select` with `time.After` so the wait can be cancelled:
+```go
+select {
+case <-done:
+    return
+case <-time.After(100 * time.Millisecond):
+    // timeout handling
+}
+```
+
+**When fixing a concurrency bug:**
+
+Before committing the fix, search for the same pattern elsewhere:
+```bash
+grep -r "go func" --include="*.go" internal/
+grep -r "chan " --include="*.go" internal/
+grep -r "\.Lock()" --include="*.go" internal/
+```
+
+Ask: "Does this bug class exist in other files?"
+
 ### Package Structure
 
 | Package | Purpose |
@@ -610,6 +723,34 @@ When reviewing pull requests, check for:
 - **Real data**: Are we showing actual metrics, not placeholders?
 - **Go idioms**: Does the Go code follow standard conventions?
 - **Documentation**: Are new features explained?
+
+### Concurrency Review Checklist
+
+For PRs that introduce goroutines, channels, or mutexes, verify:
+
+**Design documentation exists:**
+- [ ] Goroutine inventory (what goroutines, who owns them, when do they exit)
+- [ ] Channel ownership (who creates, writes, reads, closes each channel)
+- [ ] Mutex coverage (which fields does each mutex protect)
+- [ ] Shutdown ordering (sequence for graceful termination)
+
+**Common bugs to check for:**
+- [ ] **Double Wait()**: Is `cmd.Wait()` called from only one location?
+- [ ] **Channel double-close**: Are all channel closes protected by `sync.Once`?
+- [ ] **Goroutine leaks**: Does `Stop()` wait for all goroutines to exit?
+- [ ] **Send on closed channel**: Can any goroutine send after channel is closed?
+- [ ] **Missing mutex**: Is all shared mutable state protected?
+- [ ] **Deadlock potential**: Can goroutines block waiting for each other?
+- [ ] **Sleep for synchronization**: Is `time.Sleep()` used instead of proper synchronization? (channels, WaitGroup, etc.)
+
+**Testing requirements:**
+- [ ] Race detector passes: `bazel test --@io_bazel_rules_go//go/config:race //...`
+- [ ] Lifecycle tests exist (start → use → stop)
+- [ ] Concurrent access tests exist (multiple goroutines hitting the API)
+
+**When one concurrency bug is found:**
+- Request an audit of similar patterns across the codebase
+- Check if the same bug class exists in other files
 
 ## Related Documentation
 

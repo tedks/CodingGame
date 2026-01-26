@@ -39,10 +39,10 @@ jobs:
           CODINGGAME_SCREENSHOT_DIR: /tmp/codinggame-screenshots
           CODINGGAME_SAVE_SCREENSHOTS: "1"
         run: |
-          # Install xvfb for headless X11 tests
-          sudo apt-get update && sudo apt-get install -y xvfb
+          # xvfb-run is included in the Nix environment for headless GUI tests
           # Screenshot directory is created by test code via NewCapturer/ScreenshotDir
-          nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
+          # Exclude tests tagged "race_only" - these require race detection to pass
+          nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --test_tag_filters=-race_only'
 
       - name: Upload screenshots
         if: always()
@@ -63,3 +63,163 @@ jobs:
               exit 1
             fi
           '
+
+  race-detection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: cachix/cachix-action@v15
+        with:
+          name: devenv
+          skipPush: true
+
+      - name: Generate .bazelrc.user
+        run: |
+          nix develop --command bash -c './scripts/gen-bazelrc-user.sh'
+
+      - name: Race detection tests
+        run: |
+          # Run tests with Go race detector enabled
+          # This catches data races that may not manifest in normal test runs
+          nix develop --command bash -c '
+            set -euo pipefail
+
+            # First, verify race detection is actually enabled by running the verification test
+            # This test (in race_verification_test target) will fail if race detection is not working
+            echo "Verifying race detection is enabled..."
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //internal/testutil:race_verification_test \
+              --@io_bazel_rules_go//go/config:race \
+              --test_output=errors
+
+            # Now run all tests with race detection (including race_only tagged tests)
+            echo "Running full test suite with race detection..."
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --@io_bazel_rules_go//go/config:race
+          '
+
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: cachix/cachix-action@v15
+        with:
+          name: devenv
+          skipPush: true
+
+      - name: Generate .bazelrc.user
+        run: |
+          nix develop --command bash -c './scripts/gen-bazelrc-user.sh'
+
+      - name: Generate coverage report
+        run: |
+          # Use bazel coverage which generates LCOV format
+          # xvfb-run and lcov tools are in the Nix environment
+          nix develop --command bash -c '
+            set -euo pipefail
+
+            # Exclude tests tagged "race_only" - these require race detection to pass
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel coverage //... --combined_report=lcov --test_tag_filters=-race_only
+
+            # Copy the coverage report to workspace
+            COVERAGE_FILE=$(bazel info output_path)/_coverage/_coverage_report.dat
+            if [[ ! -f "$COVERAGE_FILE" ]]; then
+              echo "ERROR: Coverage report not generated at $COVERAGE_FILE"
+              exit 1
+            fi
+            cp "$COVERAGE_FILE" coverage.lcov
+
+            # Verify coverage file is not empty
+            if [[ ! -s coverage.lcov ]]; then
+              echo "ERROR: Coverage file is empty"
+              exit 1
+            fi
+
+            # Generate summary using lcov
+            lcov --summary coverage.lcov 2>&1 | tee coverage-summary.txt
+
+            # Generate function-level report (non-fatal if it fails)
+            lcov --list coverage.lcov > coverage-details.txt 2>&1 || echo "Warning: Could not generate detailed coverage list"
+          '
+
+      - name: Generate HTML report
+        run: |
+          nix develop --command bash -c '
+            genhtml coverage.lcov --output-directory coverage-html --ignore-errors source
+          '
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.lcov
+            coverage-summary.txt
+            coverage-details.txt
+            coverage-html/
+          retention-days: 30
+
+      - name: Post coverage summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Read coverage summary
+            let summary = '';
+            try {
+              summary = fs.readFileSync('coverage-summary.txt', 'utf8');
+            } catch (e) {
+              summary = 'Coverage summary not available';
+            }
+
+            // Extract line coverage percentage
+            const lineMatch = summary.match(/lines[^:]*:\s*([\d.]+)%/i);
+            const lineCoverage = lineMatch ? lineMatch[1] + '%' : 'unknown';
+
+            // Extract function coverage percentage
+            const funcMatch = summary.match(/functions[^:]*:\s*([\d.]+)%/i);
+            const funcCoverage = funcMatch ? funcMatch[1] + '%' : 'unknown';
+
+            // Get commit SHA for reference
+            const sha = context.sha.substring(0, 7);
+
+            let body = `## 📊 Test Coverage Report\n\n`;
+            body += `**Commit:** \`${sha}\`\n\n`;
+            body += `| Metric | Coverage |\n`;
+            body += `|--------|----------|\n`;
+            body += `| Lines | ${lineCoverage} |\n`;
+            body += `| Functions | ${funcCoverage} |\n\n`;
+
+            body += `<details>\n<summary>Full summary</summary>\n\n\`\`\`\n${summary}\n\`\`\`\n</details>\n\n`;
+            body += `<sub>Full HTML report available in workflow artifacts</sub>`;
+
+            // Always create a new comment to track coverage over time
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });

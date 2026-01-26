@@ -541,13 +541,32 @@ func TestAdvisor_Concurrency(t *testing.T) {
 
 	var wg sync.WaitGroup
 	done := make(chan struct{})
+	insightsDone := make(chan struct{})
 
-	// Multiple goroutines accessing advisor concurrently
-	for i := 0; i < 10; i++ {
+	// Multiple goroutines adding insights (these finish first)
+	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for {
+			for j := 0; j < 10; j++ {
+				a.AddInsight(NewInsight("test", "Title", "Description", SeverityInfo, CategoryGeneral))
+			}
+		}()
+	}
+
+	// Wait for insight goroutines to finish
+	go func() {
+		wg.Wait()
+		close(insightsDone)
+	}()
+
+	// Multiple goroutines reading advisor state - each does 100 iterations
+	var readersWg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		readersWg.Add(1)
+		go func(idx int) {
+			defer readersWg.Done()
+			for iterations := 0; iterations < 100; iterations++ {
 				select {
 				case <-done:
 					return
@@ -557,32 +576,18 @@ func TestAdvisor_Concurrency(t *testing.T) {
 					_ = a.State()
 					_ = a.Metrics()
 					_ = a.Insights()
-					a.SetPosition(float64(i), float64(i))
+					a.SetPosition(float64(idx), float64(idx))
 				}
 			}
-		}()
+		}(i)
 	}
 
-	// Multiple goroutines adding insights
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 10; j++ {
-				select {
-				case <-done:
-					return
-				default:
-					a.AddInsight(NewInsight("test", "Title", "Description", SeverityInfo, CategoryGeneral))
-				}
-			}
-		}()
-	}
+	// Wait for insights to be added
+	<-insightsDone
 
-	// Let it run for a bit
-	time.Sleep(100 * time.Millisecond)
+	// Signal readers to finish if they haven't already
 	close(done)
-	wg.Wait()
+	readersWg.Wait()
 
 	// If we get here without race conditions, test passes
 	// Run with -race to detect races
