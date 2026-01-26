@@ -302,6 +302,13 @@ func (gs *GameScene) startHarness(config ui.GameConfig) {
 
 	gs.mainHarness = h
 
+	// Wire up prompt submission to send to harness
+	gs.onPromptSubmit = func(text string) {
+		if err := gs.mainHarness.SendPrompt(text); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to send prompt: %v\n", err)
+		}
+	}
+
 	// Configure advisor pool to use the same harness as the main agent by default
 	if gs.advisorPool != nil {
 		gs.advisorPool.SetMainHarness(config.Harness)
