@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_test")
 go_test(
     name = "systemtest_test",
     srcs = [
+        "conversation_panel_test.go",
         "focus_test.go",
         "main_test.go",
         "mapview_mouse_test.go",
