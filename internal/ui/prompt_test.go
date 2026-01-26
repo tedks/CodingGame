@@ -219,3 +219,242 @@ func TestPromptState_Constants(t *testing.T) {
 		seen[s] = true
 	}
 }
+
+// Tests for conversation panel features
+
+func TestPromptPanel_MessageHistory(t *testing.T) {
+	p := NewPromptPanel(800)
+
+	// Initially no messages
+	if p.MessageCount() != 0 {
+		t.Errorf("MessageCount() = %d, want 0", p.MessageCount())
+	}
+
+	// Add user message
+	p.AddUserMessage("Hello Claude")
+	if p.MessageCount() != 1 {
+		t.Errorf("MessageCount() = %d, want 1", p.MessageCount())
+	}
+
+	// Add assistant response
+	p.SetResponseText("Hello! How can I help?")
+	if p.MessageCount() != 2 {
+		t.Errorf("MessageCount() = %d, want 2", p.MessageCount())
+	}
+
+	// Empty messages should not be added
+	p.AddUserMessage("")
+	p.SetResponseText("")
+	if p.MessageCount() != 2 {
+		t.Errorf("MessageCount() = %d, want 2 (empty messages ignored)", p.MessageCount())
+	}
+}
+
+func TestPromptPanel_ClearHistory(t *testing.T) {
+	p := NewPromptPanel(800)
+
+	p.AddUserMessage("msg1")
+	p.SetResponseText("response1")
+	p.ClearHistory()
+
+	if p.MessageCount() != 0 {
+		t.Errorf("MessageCount() after ClearHistory = %d, want 0", p.MessageCount())
+	}
+}
+
+func TestPromptPanel_MinimizeMaximize(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+
+	// Initially not minimized
+	if p.IsMinimized() {
+		t.Error("expected not minimized initially")
+	}
+
+	// Add messages to grow panel
+	p.AddUserMessage("test message")
+	p.SetResponseText("test response")
+
+	// Toggle minimize
+	p.ToggleMinimized()
+	if !p.IsMinimized() {
+		t.Error("expected minimized after ToggleMinimized()")
+	}
+
+	// Run update to apply height change
+	for i := 0; i < 100; i++ {
+		p.Update()
+	}
+	if p.Height() != MinPanelHeight {
+		t.Errorf("Height() when minimized = %d, want %d", p.Height(), MinPanelHeight)
+	}
+
+	// Toggle back
+	p.ToggleMinimized()
+	if p.IsMinimized() {
+		t.Error("expected not minimized after second ToggleMinimized()")
+	}
+}
+
+func TestPromptPanel_HeightGrowsWithMessages(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+
+	initialHeight := p.Height()
+
+	// Add several messages
+	for i := 0; i < 5; i++ {
+		p.AddUserMessage("User message that should increase panel height")
+		p.SetResponseText("Assistant response with enough text to grow")
+	}
+
+	// Run updates to animate height
+	for i := 0; i < 100; i++ {
+		p.Update()
+	}
+
+	if p.Height() <= initialHeight {
+		t.Errorf("Height() = %d, expected > %d after adding messages", p.Height(), initialHeight)
+	}
+}
+
+func TestPromptPanel_HeightClamped(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+
+	// Add many messages
+	for i := 0; i < 50; i++ {
+		p.AddUserMessage("Message " + string(rune('A'+i%26)))
+		p.SetResponseText("Response with lots of text to fill space")
+	}
+
+	// Run updates
+	for i := 0; i < 200; i++ {
+		p.Update()
+	}
+
+	if p.Height() > MaxPanelHeight {
+		t.Errorf("Height() = %d, should not exceed MaxPanelHeight %d", p.Height(), MaxPanelHeight)
+	}
+}
+
+func TestPromptPanel_ContainsPoint(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.Update() // Set Y position
+
+	// Point inside panel
+	if !p.ContainsPoint(400, p.Y+30) {
+		t.Error("ContainsPoint should return true for point inside panel")
+	}
+
+	// Point above panel
+	if p.ContainsPoint(400, p.Y-10) {
+		t.Error("ContainsPoint should return false for point above panel")
+	}
+
+	// Point to the left of panel
+	if p.ContainsPoint(-10, p.Y+30) {
+		t.Error("ContainsPoint should return false for point left of panel")
+	}
+}
+
+func TestPromptPanel_DragHandle(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.Update()
+
+	// Point on drag handle (top edge)
+	if !p.IsOnDragHandle(400, p.Y+2) {
+		t.Error("IsOnDragHandle should return true for point on drag handle")
+	}
+
+	// Point below drag handle
+	if p.IsOnDragHandle(400, p.Y+20) {
+		t.Error("IsOnDragHandle should return false for point below drag handle")
+	}
+}
+
+func TestPromptPanel_DragResize(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.Update()
+
+	initialHeight := p.Height()
+
+	// Start drag
+	p.StartDrag(p.Y)
+	if !p.IsDragging() {
+		t.Error("expected IsDragging() = true after StartDrag()")
+	}
+
+	// Drag upward (should increase height)
+	p.UpdateDrag(p.Y - 100)
+
+	if p.Height() <= initialHeight {
+		t.Errorf("Height() = %d, expected > %d after dragging up", p.Height(), initialHeight)
+	}
+
+	// End drag
+	p.EndDrag()
+	if p.IsDragging() {
+		t.Error("expected IsDragging() = false after EndDrag()")
+	}
+}
+
+func TestPromptPanel_ScrollUpDown(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+
+	// Add enough messages to enable scrolling
+	for i := 0; i < 20; i++ {
+		p.AddUserMessage("Long message to create scrollable content")
+		p.SetResponseText("Response text that adds more content")
+	}
+
+	// Maximize panel height
+	p.StartDrag(0)
+	p.UpdateDrag(-500)
+	p.EndDrag()
+
+	// Scroll up
+	p.ScrollUp()
+	// ScrollOffset should increase (we're scrolling up in history)
+
+	// Scroll down
+	p.ScrollDown()
+	// ScrollOffset should decrease
+}
+
+func TestPromptPanel_HandleClick(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.AddUserMessage("test") // Add message so panel isn't minimal
+	p.Update()
+
+	// Click outside panel should not be handled
+	if p.HandleClick(400, 0) {
+		t.Error("HandleClick should return false for click outside panel")
+	}
+
+	// Click inside panel should be handled
+	if !p.HandleClick(400, p.Y+30) {
+		t.Error("HandleClick should return true for click inside panel")
+	}
+}
+
+func TestPromptPanel_HandleScroll(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.Update()
+
+	// Scroll outside panel
+	if p.HandleScroll(400, 0, 0, 1) {
+		t.Error("HandleScroll should return false for scroll outside panel")
+	}
+
+	// Scroll inside panel
+	if !p.HandleScroll(400, p.Y+30, 0, 1) {
+		t.Error("HandleScroll should return true for scroll inside panel")
+	}
+}
