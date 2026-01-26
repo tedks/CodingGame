@@ -203,38 +203,23 @@ jobs:
             const funcMatch = summary.match(/functions[^:]*:\s*([\d.]+)%/i);
             const funcCoverage = funcMatch ? funcMatch[1] + '%' : 'unknown';
 
+            // Get commit SHA for reference
+            const sha = context.sha.substring(0, 7);
+
             let body = `## 📊 Test Coverage Report\n\n`;
+            body += `**Commit:** \`${sha}\`\n\n`;
             body += `| Metric | Coverage |\n`;
             body += `|--------|----------|\n`;
             body += `| Lines | ${lineCoverage} |\n`;
             body += `| Functions | ${funcCoverage} |\n\n`;
 
             body += `<details>\n<summary>Full summary</summary>\n\n\`\`\`\n${summary}\n\`\`\`\n</details>\n\n`;
-            body += `\n<sub>Full HTML report available in workflow artifacts</sub>`;
+            body += `<sub>Full HTML report available in workflow artifacts</sub>`;
 
-            // Find existing coverage comment
-            const { data: comments } = await github.rest.issues.listComments({
+            // Always create a new comment to track coverage over time
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              body: body
             });
-
-            const botComment = comments.find(c =>
-              c.user.type === 'Bot' && c.body.includes('Test Coverage Report')
-            );
-
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body: body
-              });
-            }
