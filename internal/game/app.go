@@ -45,6 +45,16 @@ func NewApp(projectPath string, width, height int) (*App, error) {
 			return nil, err
 		}
 		gameScene.SetHarnessRegistry(app.harnessRegistry)
+
+		// Create default config with Claude Code and default model
+		// This starts the harness so prompts can be sent
+		defaultConfig := ui.GameConfig{
+			Harness:     "claude-code",
+			Model:       app.harnessRegistry.DefaultModel("claude-code"),
+			ProjectPath: projectPath,
+		}
+		gameScene.SetConfig(defaultConfig)
+
 		app.sceneManager = ui.NewSceneManager(gameScene, width, height)
 	} else {
 		// Show start screen with shared registry

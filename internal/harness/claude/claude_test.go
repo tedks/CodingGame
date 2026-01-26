@@ -76,7 +76,7 @@ func TestBuildArgs(t *testing.T) {
 			name:   "default",
 			config: harness.NewConfig("/tmp"),
 			contains: []string{
-				"--output-format", "json",
+				"--output-format", "stream-json",
 				"--print",
 			},
 		},

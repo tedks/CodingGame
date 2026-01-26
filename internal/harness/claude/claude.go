@@ -189,8 +189,8 @@ func (c *ClaudeHarness) monitorProcess() {
 func (c *ClaudeHarness) buildArgs(config harness.Config) []string {
 	args := []string{}
 
-	// Always use JSON output format for parsing
-	args = append(args, "--output-format", "json")
+	// Use stream-json for newline-delimited JSON output (not plain "json" which outputs array)
+	args = append(args, "--output-format", "stream-json")
 
 	// Model selection
 	if config.Model != "" {

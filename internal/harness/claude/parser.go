@@ -146,6 +146,34 @@ func (p *Parser) inferEventType(raw map[string]interface{}) harness.EventType {
 	// Check message type field (Claude Code JSON format)
 	if msgType, ok := raw["type"].(string); ok {
 		switch msgType {
+		// Claude Code stream-json format
+		case "system":
+			// System initialization message - we can ignore these or use for session info
+			return harness.EventTurnStart
+		case "assistant":
+			// Assistant message - check for tool use in content
+			if message, ok := raw["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].([]interface{}); ok {
+					for _, block := range content {
+						if blockMap, ok := block.(map[string]interface{}); ok {
+							if blockType, ok := blockMap["type"].(string); ok {
+								if blockType == "tool_use" {
+									// Extract tool info and infer type
+									return p.inferToolEventFromContent(blockMap)
+								}
+							}
+						}
+					}
+				}
+				// Check stop_reason for turn complete
+				if stopReason, ok := message["stop_reason"].(string); ok && stopReason == "end_turn" {
+					return harness.EventTurnComplete
+				}
+			}
+			return harness.EventText
+		case "result":
+			// Result message indicates turn complete
+			return harness.EventTurnComplete
 		case "tool_use":
 			return p.inferToolEventType(raw)
 		case "tool_result":
@@ -181,6 +209,14 @@ func (p *Parser) inferEventType(raw map[string]interface{}) harness.EventType {
 	}
 
 	return ""
+}
+
+// inferToolEventFromContent extracts tool info from a content block
+func (p *Parser) inferToolEventFromContent(blockMap map[string]interface{}) harness.EventType {
+	if name, ok := blockMap["name"].(string); ok {
+		return p.inferToolEventTypeFromName(name, blockMap)
+	}
+	return harness.EventToolUse
 }
 
 // inferToolEventType determines the specific event type for a tool_use message

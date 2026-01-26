@@ -364,6 +364,10 @@ func (gs *GameScene) handleHarnessEvent(event *harness.Event) {
 	case harness.EventSubagentRun:
 		// Handle advisor/subagent execution
 		gs.handleHarnessAdvisorEvent(event)
+
+	case harness.EventTurnComplete:
+		// Reset prompt panel to idle when turn completes
+		gs.promptPanel.SetState(ui.PromptStateIdle)
 	}
 }
 
