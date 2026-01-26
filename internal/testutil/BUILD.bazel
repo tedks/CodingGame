@@ -34,3 +34,14 @@ go_test(
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
     ],
 )
+
+# Separate test target for race detection verification.
+# This test FAILS if race detection is not enabled, so it must be
+# excluded from regular test runs and only run with --@io_bazel_rules_go//go/config:race.
+# Use tag "race_only" to exclude from `bazel test //...` via --test_tag_filters=-race_only
+go_test(
+    name = "race_verification_test",
+    srcs = ["race_verification_test.go"],
+    embed = [":testutil"],
+    tags = ["race_only"],
+)

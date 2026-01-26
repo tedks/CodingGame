@@ -41,7 +41,8 @@ jobs:
         run: |
           # xvfb-run is included in the Nix environment for headless GUI tests
           # Screenshot directory is created by test code via NewCapturer/ScreenshotDir
-          nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //...'
+          # Exclude tests tagged "race_only" - these require race detection to pass
+          nix develop --command bash -c 'xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --test_tag_filters=-race_only'
 
       - name: Race detection tests
         run: |
@@ -51,14 +52,13 @@ jobs:
             set -euo pipefail
 
             # First, verify race detection is actually enabled by running the verification test
-            # This test will fail if race detection is not working
+            # This test (in race_verification_test target) will fail if race detection is not working
             echo "Verifying race detection is enabled..."
-            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //internal/testutil:testutil_test \
-              --test_filter=TestRaceDetectorMustBeEnabled \
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //internal/testutil:race_verification_test \
               --@io_bazel_rules_go//go/config:race \
               --test_output=errors
 
-            # Now run all tests with race detection
+            # Now run all tests with race detection (including race_only tagged tests)
             echo "Running full test suite with race detection..."
             xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel test //... --@io_bazel_rules_go//go/config:race
           '
@@ -116,7 +116,8 @@ jobs:
           nix develop --command bash -c '
             set -euo pipefail
 
-            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel coverage //... --combined_report=lcov
+            # Exclude tests tagged "race_only" - these require race detection to pass
+            xvfb-run -a -s "-screen 0 1024x768x24 -ac" bazel coverage //... --combined_report=lcov --test_tag_filters=-race_only
 
             # Copy the coverage report to workspace
             COVERAGE_FILE=$(bazel info output_path)/_coverage/_coverage_report.dat
