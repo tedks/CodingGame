@@ -454,3 +454,11 @@ func (ss *StartScreen) SetRecentProjects(projects []string) {
 	ss.recentProjects = projects
 	ss.initMenus() // Rebuild menus with updated projects
 }
+
+// SetHarnessRegistry sets the harness registry for dynamic harness/model info.
+// This should be called before the start screen is displayed to ensure
+// harness availability is correctly detected.
+func (ss *StartScreen) SetHarnessRegistry(registry *harness.Registry) {
+	ss.registry = registry
+	ss.initMenus() // Rebuild menus with updated registry
+}

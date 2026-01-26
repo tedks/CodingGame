@@ -2,6 +2,8 @@ package game
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/tedks/CodingGame/internal/harness"
+	hclaude "github.com/tedks/CodingGame/internal/harness/claude"
 	"github.com/tedks/CodingGame/internal/ui"
 )
 
@@ -11,6 +13,9 @@ type App struct {
 	width        int
 	height       int
 	sceneManager *ui.SceneManager
+
+	// Shared harness registry for all scenes
+	harnessRegistry *harness.Registry
 
 	// Direct project path bypasses start screen
 	directProjectPath string
@@ -25,6 +30,10 @@ func NewApp(projectPath string, width, height int) (*App, error) {
 		height: height,
 	}
 
+	// Create shared harness registry and register available harnesses
+	app.harnessRegistry = harness.NewRegistry()
+	app.harnessRegistry.Register("claude-code", hclaude.NewHarness)
+
 	// Determine if we should skip the start screen
 	skipStartScreen := projectPath != "" && projectPath != "."
 
@@ -35,13 +44,15 @@ func NewApp(projectPath string, width, height int) (*App, error) {
 		if err != nil {
 			return nil, err
 		}
+		gameScene.SetHarnessRegistry(app.harnessRegistry)
 		app.sceneManager = ui.NewSceneManager(gameScene, width, height)
 	} else {
-		// Show start screen
+		// Show start screen with shared registry
 		startScreen := ui.NewStartScreen(width, height, func(config ui.GameConfig) {
 			// When configuration is complete, transition to game
 			app.onStartScreenComplete(config)
 		})
+		startScreen.SetHarnessRegistry(app.harnessRegistry)
 		app.sceneManager = ui.NewSceneManager(startScreen, width, height)
 	}
 
@@ -56,6 +67,9 @@ func (a *App) onStartScreenComplete(config ui.GameConfig) {
 		// TODO: Show error screen or return to start screen
 		return
 	}
+
+	// Inject shared harness registry (must be before SetConfig)
+	gameScene.SetHarnessRegistry(a.harnessRegistry)
 
 	// Store config for later use (model selection, etc.)
 	gameScene.SetConfig(config)

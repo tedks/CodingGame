@@ -266,6 +266,13 @@ func (gs *GameScene) SetConfig(config ui.GameConfig) {
 	}
 }
 
+// SetHarnessRegistry sets the harness registry, replacing the default one.
+// This should be called before SetConfig to ensure the harness is available.
+func (gs *GameScene) SetHarnessRegistry(registry *harness.Registry) {
+	gs.registry = registry
+	gs.advisorPool.SetHarnessRegistry(registry)
+}
+
 // startHarness creates and starts the main harness based on config.
 func (gs *GameScene) startHarness(config ui.GameConfig) {
 	// Create harness instance
