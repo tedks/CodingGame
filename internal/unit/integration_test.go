@@ -87,7 +87,6 @@ func TestIntegration_MultipleUnits(t *testing.T) {
 			defer wg.Done()
 
 			u.StartTest()
-			time.Sleep(time.Millisecond) // Simulate test execution
 
 			result := &TestResult{
 				Passed:    idx%3 != 0, // Fail every 3rd test

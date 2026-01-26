@@ -46,6 +46,7 @@
           pkgs.buildifier
           pkgs.buildozer
           pkgs.pkg-config
+          pkgs.jdk21_headless  # Required for bazel coverage (lcov_merger is Java)
         ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux graphicsLibs;
 
         # Development tools
@@ -55,6 +56,10 @@
           go-tools
           delve
           git
+          lcov           # Coverage report tools (lcov, genhtml)
+          gh             # GitHub CLI for PR operations
+        ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+          xvfb-run       # Virtual framebuffer for headless GUI tests
         ];
 
       in

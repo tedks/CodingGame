@@ -425,6 +425,9 @@ type mockListener struct {
 	removed      []string
 	insights     []*Insight
 	stateChanges []stateChange
+	// Channels for synchronization in tests
+	addedCh   chan *Advisor
+	removedCh chan string
 }
 
 type stateChange struct {
@@ -433,16 +436,33 @@ type stateChange struct {
 	newState AdvisorState
 }
 
+func newMockListener() *mockListener {
+	return &mockListener{
+		addedCh:   make(chan *Advisor, 10),
+		removedCh: make(chan string, 10),
+	}
+}
+
 func (m *mockListener) OnAdvisorAdded(advisor *Advisor) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.added = append(m.added, advisor)
+	m.mu.Unlock()
+	// Signal via channel for synchronization
+	select {
+	case m.addedCh <- advisor:
+	default:
+	}
 }
 
 func (m *mockListener) OnAdvisorRemoved(advisorID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.removed = append(m.removed, advisorID)
+	m.mu.Unlock()
+	// Signal via channel for synchronization
+	select {
+	case m.removedCh <- advisorID:
+	default:
+	}
 }
 
 func (m *mockListener) OnInsightGenerated(insight *Insight) {
@@ -459,14 +479,19 @@ func (m *mockListener) OnAdvisorStateChanged(advisor *Advisor, oldState, newStat
 
 func TestPool_Listener_OnAdvisorAdded(t *testing.T) {
 	pool := NewPool()
-	listener := &mockListener{}
+	listener := newMockListener()
 	pool.AddListener(listener)
 
 	advisor := New(Config{ID: "test", Name: "Test", SystemPrompt: "prompt", Trigger: TriggerManual}, 0, 0)
 	pool.Add(advisor)
 
-	// Wait for async notification
-	time.Sleep(10 * time.Millisecond)
+	// Wait for async notification via channel
+	select {
+	case <-listener.addedCh:
+		// Notification received
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for OnAdvisorAdded notification")
+	}
 
 	listener.mu.Lock()
 	addedCount := len(listener.added)
@@ -479,15 +504,28 @@ func TestPool_Listener_OnAdvisorAdded(t *testing.T) {
 
 func TestPool_Listener_OnAdvisorRemoved(t *testing.T) {
 	pool := NewPool()
-	listener := &mockListener{}
+	listener := newMockListener()
 	pool.AddListener(listener)
 
 	advisor := New(Config{ID: "test", Name: "Test", SystemPrompt: "prompt", Trigger: TriggerManual}, 0, 0)
 	pool.Add(advisor)
+
+	// Wait for add notification first
+	select {
+	case <-listener.addedCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for OnAdvisorAdded notification")
+	}
+
 	pool.Remove("test")
 
-	// Wait for async notification
-	time.Sleep(10 * time.Millisecond)
+	// Wait for remove notification via channel
+	select {
+	case <-listener.removedCh:
+		// Notification received
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout waiting for OnAdvisorRemoved notification")
+	}
 
 	listener.mu.Lock()
 	removedCount := len(listener.removed)
@@ -500,15 +538,20 @@ func TestPool_Listener_OnAdvisorRemoved(t *testing.T) {
 
 func TestPool_RemoveListener(t *testing.T) {
 	pool := NewPool()
-	listener := &mockListener{}
+	listener := newMockListener()
 	pool.AddListener(listener)
 	pool.RemoveListener(listener)
 
 	advisor := New(Config{ID: "test", Name: "Test", SystemPrompt: "prompt", Trigger: TriggerManual}, 0, 0)
 	pool.Add(advisor)
 
-	// Wait briefly
-	time.Sleep(10 * time.Millisecond)
+	// Verify no notification arrives (use short timeout since we expect nothing)
+	select {
+	case <-listener.addedCh:
+		t.Error("received notification after RemoveListener, expected none")
+	case <-time.After(50 * time.Millisecond):
+		// Expected: no notification
+	}
 
 	listener.mu.Lock()
 	addedCount := len(listener.added)
@@ -523,6 +566,7 @@ func TestPool_Concurrency(t *testing.T) {
 	pool := NewPool()
 	var wg sync.WaitGroup
 	done := make(chan struct{})
+	addsDone := make(chan struct{})
 
 	// Add advisors concurrently
 	for i := 0; i < 10; i++ {
@@ -539,12 +583,20 @@ func TestPool_Concurrency(t *testing.T) {
 		}(i)
 	}
 
-	// Read concurrently
+	// Wait for all adds to complete, then signal readers to stop
+	go func() {
+		wg.Wait()
+		close(addsDone)
+	}()
+
+	// Read concurrently - each reader does 100 iterations then exits
+	var readersWg sync.WaitGroup
 	for i := 0; i < 5; i++ {
-		wg.Add(1)
+		readersWg.Add(1)
 		go func() {
-			defer wg.Done()
-			for {
+			defer readersWg.Done()
+			iterations := 0
+			for iterations < 100 {
 				select {
 				case <-done:
 					return
@@ -553,15 +605,18 @@ func TestPool_Concurrency(t *testing.T) {
 					_ = pool.GetAll()
 					_ = pool.GetAllInsights()
 					_ = pool.AggregateMetrics()
+					iterations++
 				}
 			}
 		}()
 	}
 
-	// Let it run
-	time.Sleep(50 * time.Millisecond)
+	// Wait for adds to complete
+	<-addsDone
+
+	// Signal readers to finish if they haven't already
 	close(done)
-	wg.Wait()
+	readersWg.Wait()
 
 	// If no race conditions, test passes
 }
