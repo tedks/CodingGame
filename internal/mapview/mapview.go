@@ -100,11 +100,12 @@ type MapView struct {
 	zoomLevel ZoomLevel
 
 	// Mouse drag state
-	dragging   bool
-	dragStartX int
-	dragStartY int
-	dragPanX   float64
-	dragPanY   float64
+	dragging          bool
+	dragStartX        int
+	dragStartY        int
+	dragPanX          float64
+	dragPanY          float64
+	mouseInputEnabled bool // Whether to process mouse input
 
 	// Mouse click state for tile selection
 	selectedTile  *tile.Tile // Currently selected tile
@@ -158,18 +159,19 @@ func New(projectPath string, width, height int) (*MapView, error) {
 	treeLayout := NewTreeLayout(tiles, 80) // Default tile size of 80
 
 	return &MapView{
-		projectPath:   projectPath,
-		width:         width,
-		height:        height,
-		inputSource:   input.DefaultSource,
-		viewMode:      ViewDirectory, // Default to directory view
-		panX:          0,
-		panY:          0,
-		zoomLevel:     ZoomWorld,
-		tiles:         tiles,
-		tileMap:       tileMap,
-		treeLayout:    treeLayout,
-		bgColor:       color.RGBA{20, 20, 30, 255},
+		projectPath:       projectPath,
+		width:             width,
+		height:            height,
+		inputSource:       input.DefaultSource,
+		viewMode:          ViewDirectory, // Default to directory view
+		panX:              0,
+		panY:              0,
+		zoomLevel:         ZoomWorld,
+		mouseInputEnabled: true,
+		tiles:             tiles,
+		tileMap:           tileMap,
+		treeLayout:        treeLayout,
+		bgColor:           color.RGBA{20, 20, 30, 255},
 		gridColor:     color.RGBA{60, 60, 80, 255},
 		fogColor:      color.RGBA{40, 40, 50, 200},
 		revealedColor: color.RGBA{100, 120, 150, 255},
@@ -284,8 +286,21 @@ func (m *MapView) Update() {
 	m.handleMouseInput()
 }
 
+// SetMouseInputEnabled enables or disables mouse input handling.
+// When disabled, the map will not respond to mouse drags or clicks.
+func (m *MapView) SetMouseInputEnabled(enabled bool) {
+	m.mouseInputEnabled = enabled
+	if !enabled && m.dragging {
+		// Cancel any ongoing drag
+		m.dragging = false
+	}
+}
+
 // handleMouseInput processes mouse events for panning and tile selection
 func (m *MapView) handleMouseInput() {
+	if !m.mouseInputEnabled {
+		return
+	}
 	if m.inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		x, y := m.inputSource.CursorPosition()
 		if !m.dragging {

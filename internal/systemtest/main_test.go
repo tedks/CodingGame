@@ -120,6 +120,18 @@ func TestSystemTests(t *testing.T) {
 		t.Run("ClickInBorderGap", testMapViewClickInBorderGap)
 		t.Run("TripleClickBehavior", testMapViewTripleClickBehavior)
 	})
+
+	// Conversation panel tests
+	t.Run("ConversationPanel", func(t *testing.T) {
+		t.Run("MessageHistory", testConversationPanelMessageHistory)
+		t.Run("DragResize", testConversationPanelDragResize)
+		t.Run("MinimizeRestore", testConversationPanelMinimizeRestore)
+		t.Run("Scrolling", testConversationPanelScrolling)
+		t.Run("InputIsolation", testConversationPanelInputIsolation)
+		t.Run("DragHandle", testConversationPanelDragHandle)
+		t.Run("SubmitFlow", testConversationPanelSubmitFlow)
+		t.Run("HeightAnimation", testConversationPanelHeightAnimation)
+	})
 }
 
 // Test helper types and functions

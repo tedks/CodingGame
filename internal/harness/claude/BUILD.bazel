@@ -17,9 +17,23 @@ go_test(
     name = "claude_test",
     srcs = [
         "claude_test.go",
+        "parser_integration_test.go",
         "parser_test.go",
     ],
     embed = [":claude"],
+    deps = [
+        "//internal/harness",
+    ],
+)
+
+# Integration tests that require the real Claude CLI
+go_test(
+    name = "claude_integration_test",
+    srcs = [
+        "claude_integration_test.go",
+    ],
+    embed = [":claude"],
+    tags = ["integration"],
     deps = [
         "//internal/harness",
     ],

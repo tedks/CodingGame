@@ -94,11 +94,31 @@ func (p *Parser) parseEvent(raw map[string]interface{}) *harness.Event {
 		p.extractCommand(event, raw)
 
 	case harness.EventText:
+		// Try direct text field
 		if text, ok := raw["text"].(string); ok {
 			event = event.WithText(text)
 		}
+		// Try direct content field (string)
 		if content, ok := raw["content"].(string); ok {
 			event = event.WithText(content)
+		}
+		// Try assistant message format: message.content[].text
+		if message, ok := raw["message"].(map[string]interface{}); ok {
+			if contentBlocks, ok := message["content"].([]interface{}); ok {
+				var textParts []string
+				for _, block := range contentBlocks {
+					if blockMap, ok := block.(map[string]interface{}); ok {
+						if blockType, _ := blockMap["type"].(string); blockType == "text" {
+							if text, ok := blockMap["text"].(string); ok {
+								textParts = append(textParts, text)
+							}
+						}
+					}
+				}
+				if len(textParts) > 0 {
+					event = event.WithText(strings.Join(textParts, "\n"))
+				}
+			}
 		}
 
 	case harness.EventSubagentRun:
@@ -146,6 +166,31 @@ func (p *Parser) inferEventType(raw map[string]interface{}) harness.EventType {
 	// Check message type field (Claude Code JSON format)
 	if msgType, ok := raw["type"].(string); ok {
 		switch msgType {
+		// Claude Code stream-json format
+		case "system":
+			// System initialization message - we can ignore these or use for session info
+			return harness.EventTurnStart
+		case "assistant":
+			// Assistant message - check for tool use in content
+			if message, ok := raw["message"].(map[string]interface{}); ok {
+				if content, ok := message["content"].([]interface{}); ok {
+					for _, block := range content {
+						if blockMap, ok := block.(map[string]interface{}); ok {
+							if blockType, ok := blockMap["type"].(string); ok {
+								if blockType == "tool_use" {
+									// Extract tool info and infer type
+									return p.inferToolEventFromContent(blockMap)
+								}
+							}
+						}
+					}
+				}
+			}
+			// Always treat assistant messages as text (the result message handles turn_complete)
+			return harness.EventText
+		case "result":
+			// Result message indicates turn complete
+			return harness.EventTurnComplete
 		case "tool_use":
 			return p.inferToolEventType(raw)
 		case "tool_result":
@@ -181,6 +226,14 @@ func (p *Parser) inferEventType(raw map[string]interface{}) harness.EventType {
 	}
 
 	return ""
+}
+
+// inferToolEventFromContent extracts tool info from a content block
+func (p *Parser) inferToolEventFromContent(blockMap map[string]interface{}) harness.EventType {
+	if name, ok := blockMap["name"].(string); ok {
+		return p.inferToolEventTypeFromName(name, blockMap)
+	}
+	return harness.EventToolUse
 }
 
 // inferToolEventType determines the specific event type for a tool_use message

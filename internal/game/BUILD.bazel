@@ -31,10 +31,13 @@ go_test(
     name = "game_test",
     srcs = [
         "game_test.go",
+        "harness_integration_test.go",
         "integration_test.go",
     ],
     embed = [":game"],
     deps = [
+        "//internal/harness",
         "//internal/testutil",
+        "//internal/ui",
     ],
 )

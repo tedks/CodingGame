@@ -189,8 +189,8 @@ func (c *ClaudeHarness) monitorProcess() {
 func (c *ClaudeHarness) buildArgs(config harness.Config) []string {
 	args := []string{}
 
-	// Always use JSON output format for parsing
-	args = append(args, "--output-format", "json")
+	// Use stream-json for newline-delimited JSON output (not plain "json" which outputs array)
+	args = append(args, "--output-format", "stream-json")
 
 	// Model selection
 	if config.Model != "" {
@@ -372,7 +372,14 @@ func (c *ClaudeHarness) Stop() error {
 	return nil
 }
 
-// SendPrompt sends a prompt to Claude via stdin
+// SendPrompt sends a prompt to Claude.
+//
+// With --print mode, Claude expects the prompt as a command-line argument,
+// not via stdin. This method closes stdin to signal EOF and trigger processing.
+// For subsequent prompts, the harness should be stopped and restarted.
+//
+// TODO: Consider supporting multi-turn conversations by not using --print mode
+// and instead using stdin for interactive communication.
 func (c *ClaudeHarness) SendPrompt(prompt string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -385,11 +392,16 @@ func (c *ClaudeHarness) SendPrompt(prompt string) error {
 		return fmt.Errorf("stdin not available")
 	}
 
-	// Write the prompt followed by newline
+	// In --print mode, write prompt to stdin then close to signal EOF
+	// This triggers Claude to process the prompt
 	_, err := fmt.Fprintln(c.stdin, prompt)
 	if err != nil {
 		return fmt.Errorf("sending prompt: %w", err)
 	}
+
+	// Close stdin to signal end of input - this triggers Claude to process
+	c.stdin.Close()
+	c.stdin = nil
 
 	return nil
 }
