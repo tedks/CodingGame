@@ -1,19 +1,6 @@
 package input
 
-import (
-	"os"
-	"testing"
-)
-
-// TestMain sets up the test environment
-func TestMain(m *testing.M) {
-	// If no display is available, skip all tests in this package
-	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-		println("Skipping input tests: no display available (DISPLAY and WAYLAND_DISPLAY not set)")
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
+import "testing"
 
 func TestMode_String(t *testing.T) {
 	tests := []struct {

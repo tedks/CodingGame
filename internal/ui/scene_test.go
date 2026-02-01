@@ -1,20 +1,6 @@
 package ui
 
-import (
-	"os"
-	"testing"
-)
-
-// TestMain sets up the test environment
-func TestMain(m *testing.M) {
-	// If no display is available, skip all tests in this package
-	if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-		// Print skip message and exit successfully
-		println("Skipping ui tests: no display available (DISPLAY and WAYLAND_DISPLAY not set)")
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
+import "testing"
 
 func TestSceneManagerBasics(t *testing.T) {
 	// Test NewSceneManager with nil

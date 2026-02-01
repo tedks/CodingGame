@@ -25,6 +25,7 @@ go_test(
         "compare_test.go",
         "input_test.go",
         "race_test.go",
+        "runner_display_test.go",
         "runner_test.go",
         "scenario_test.go",
         "screenshot_test.go",
