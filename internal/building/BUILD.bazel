@@ -10,7 +10,10 @@ go_library(
 
 go_test(
     name = "building_test",
-    srcs = ["building_test.go"],
+    srcs = [
+        "building_test.go",
+        "integration_test.go",
+    ],
     embed = [":building"],
     deps = ["//internal/build"],
 )
