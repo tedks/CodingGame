@@ -84,8 +84,8 @@ type HarnessFactory func() Harness
 //   - EventsWritable() returns a send-only channel. Multiple goroutines may
 //     send events concurrently, but implementers must ensure the channel is
 //     not closed while sends are in progress.
-//   - CloseEvents() must be called exactly once, after all senders have stopped.
-//     Use sync.Once in implementations to prevent double-close panics.
+//   - CloseEvents() should be called after all senders have stopped. It is
+//     safe to call more than once.
 //
 // # Event Ordering
 //
@@ -103,11 +103,13 @@ type HarnessFactory func() Harness
 //
 // Once stopped, a BaseHarness cannot be restarted. Create a new instance instead.
 type BaseHarness struct {
-	mu      sync.RWMutex
-	name    string
-	version string
-	running bool
-	events  chan Event
+	mu        sync.RWMutex
+	name      string
+	version   string
+	running   bool
+	events    chan Event
+	closeOnce sync.Once
+	closed    bool
 }
 
 // NewBaseHarness creates a new base harness with the given name
@@ -161,7 +163,19 @@ func (b *BaseHarness) EventsWritable() chan<- Event {
 	return b.events
 }
 
+// EventsClosed reports whether the events channel has been closed.
+func (b *BaseHarness) EventsClosed() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.closed
+}
+
 // CloseEvents closes the events channel
 func (b *BaseHarness) CloseEvents() {
-	close(b.events)
+	b.closeOnce.Do(func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.closed = true
+		close(b.events)
+	})
 }

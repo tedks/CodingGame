@@ -13,6 +13,7 @@ import (
 // Parser parses Claude Code JSON output and emits harness events
 type Parser struct {
 	events chan<- harness.Event
+	closed func() bool
 	// DebugWriter, if set, receives debug output for parse failures and
 	// unrecognized event types. Useful for troubleshooting Claude output changes.
 	DebugWriter io.Writer
@@ -28,6 +29,11 @@ func NewParser(events chan<- harness.Event) *Parser {
 	}
 }
 
+// SetClosedFunc sets a function used to detect whether the events channel is closed.
+func (p *Parser) SetClosedFunc(fn func() bool) {
+	p.closed = fn
+}
+
 // SetDebugWriter sets the writer for debug output.
 // Pass nil to disable debug logging.
 func (p *Parser) SetDebugWriter(w io.Writer) {
@@ -41,23 +47,37 @@ func (p *Parser) debugf(format string, args ...interface{}) {
 	}
 }
 
+func (p *Parser) isClosed() bool {
+	if p.closed == nil {
+		return false
+	}
+	return p.closed()
+}
+
+func (p *Parser) emit(event harness.Event) {
+	if p.isClosed() {
+		return
+	}
+	p.events <- event
+}
+
 // ParseLine parses a single line of JSON output
 func (p *Parser) ParseLine(line []byte) {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(line, &raw); err != nil {
 		p.debugf("JSON parse error: %v (line: %s)", err, string(line))
 		if p.EmitParseWarnings {
-			p.events <- harness.NewEvent(harness.EventWarning).
+			p.emit(harness.NewEvent(harness.EventWarning).
 				WithText(fmt.Sprintf("Failed to parse JSON: %s", string(line))).
 				WithSource("claude-code-parser").
-				Build()
+				Build())
 		}
 		return
 	}
 
 	event := p.parseEvent(raw)
 	if event != nil {
-		p.events <- *event
+		p.emit(*event)
 	} else {
 		p.debugf("unrecognized event structure: %s", string(line))
 	}
@@ -421,7 +441,7 @@ func (p *Parser) ParseJSON(data []byte) error {
 
 	event := p.parseEvent(raw)
 	if event != nil {
-		p.events <- *event
+		p.emit(*event)
 	}
 	return nil
 }
@@ -436,7 +456,7 @@ func (p *Parser) ParseToolUse(toolName string, input map[string]interface{}) {
 		WithSource("claude-code").
 		Build()
 
-	p.events <- event
+	p.emit(event)
 }
 
 // ParseToolResult creates a tool result event
@@ -449,5 +469,5 @@ func (p *Parser) ParseToolResult(toolName string, output map[string]interface{})
 		builder = builder.WithToolOutput(k, v)
 	}
 
-	p.events <- builder.Build()
+	p.emit(builder.Build())
 }

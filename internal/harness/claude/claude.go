@@ -124,6 +124,7 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 
 	// Create parser and start reading output
 	c.parser = NewParser(c.EventsWritable())
+	c.parser.SetClosedFunc(c.EventsClosed)
 	c.wg.Add(2)
 	go c.readOutput()
 	go c.readErrors()
