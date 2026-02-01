@@ -118,7 +118,7 @@ func TestWatcherDetectsFileCreation(t *testing.T) {
 	// Create watcher with short poll interval for testing
 	w := NewWatcher(r)
 	manual := newManualTicker()
-	w.newTicker = func(time.Duration) ticker { return manual }
+	w.SetTickerFactory(func(time.Duration) ticker { return manual })
 
 	// Start watcher
 	if err := w.Start(); err != nil {
@@ -171,7 +171,7 @@ func TestWatcherDetectsFileModification(t *testing.T) {
 	// Create watcher with short poll interval
 	w := NewWatcher(r)
 	manual := newManualTicker()
-	w.newTicker = func(time.Duration) ticker { return manual }
+	w.SetTickerFactory(func(time.Duration) ticker { return manual })
 	if err := w.Start(); err != nil {
 		t.Fatalf("Start() returned error: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestWatcherDetectsFileDeletion(t *testing.T) {
 	// Create watcher with short poll interval
 	w := NewWatcher(r)
 	manual := newManualTicker()
-	w.newTicker = func(time.Duration) ticker { return manual }
+	w.SetTickerFactory(func(time.Duration) ticker { return manual })
 	if err := w.Start(); err != nil {
 		t.Fatalf("Start() returned error: %v", err)
 	}

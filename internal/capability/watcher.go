@@ -54,6 +54,17 @@ func NewWatcher(registry *Registry) *Watcher {
 	}
 }
 
+// SetTickerFactory configures the ticker creation function (for testing).
+// Changes take effect on the next Start() call; do not call while running.
+func (w *Watcher) SetTickerFactory(factory func(time.Duration) ticker) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.running {
+		return
+	}
+	w.newTicker = factory
+}
+
 // SetPollInterval configures the polling interval.
 // Note: Changes to the interval only take effect on the next Start() call.
 // Calling SetPollInterval while the watcher is running will not affect the current
@@ -74,6 +85,8 @@ func (w *Watcher) Start() error {
 	if w.newTicker == nil {
 		w.newTicker = newRealTicker
 	}
+	interval := w.pollInterval
+	newTicker := w.newTicker
 	w.running = true
 	w.stopCh = make(chan struct{})
 	w.mu.Unlock()
@@ -83,7 +96,7 @@ func (w *Watcher) Start() error {
 
 	// Start polling goroutine
 	w.wg.Add(1)
-	go w.poll()
+	go w.poll(interval, newTicker)
 
 	return nil
 }
@@ -111,13 +124,8 @@ func (w *Watcher) IsRunning() bool {
 }
 
 // poll is the main polling loop.
-func (w *Watcher) poll() {
+func (w *Watcher) poll(interval time.Duration, newTicker func(time.Duration) ticker) {
 	defer w.wg.Done()
-
-	w.mu.Lock()
-	interval := w.pollInterval
-	newTicker := w.newTicker
-	w.mu.Unlock()
 
 	ticker := newTicker(interval)
 	defer ticker.Stop()
