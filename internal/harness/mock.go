@@ -129,6 +129,9 @@ func (m *MockHarness) StartConfig() Config {
 
 // SimulateEvent sends an event to consumers (for testing event handlers).
 func (m *MockHarness) SimulateEvent(event Event) {
+	if !m.IsRunning() || m.EventsClosed() {
+		return
+	}
 	m.EventsWritable() <- event
 }
 
