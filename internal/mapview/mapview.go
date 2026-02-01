@@ -172,10 +172,10 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		tileMap:           tileMap,
 		treeLayout:        treeLayout,
 		bgColor:           color.RGBA{20, 20, 30, 255},
-		gridColor:     color.RGBA{60, 60, 80, 255},
-		fogColor:      color.RGBA{40, 40, 50, 200},
-		revealedColor: color.RGBA{100, 120, 150, 255},
-		selectedColor: color.RGBA{255, 200, 100, 180}, // Yellow highlight for selection
+		gridColor:         color.RGBA{60, 60, 80, 255},
+		fogColor:          color.RGBA{40, 40, 50, 200},
+		revealedColor:     color.RGBA{100, 120, 150, 255},
+		selectedColor:     color.RGBA{255, 200, 100, 180}, // Yellow highlight for selection
 		// Belt colors for dataflow view
 		beltImportColor:      color.RGBA{100, 150, 200, 255}, // Blue for imports
 		beltInheritanceColor: color.RGBA{200, 150, 100, 255}, // Orange for inheritance
@@ -536,7 +536,14 @@ func (m *MapView) drawDirectoryView(screen *ebiten.Image, offsetX, offsetY int) 
 func (m *MapView) drawDataflowView(screen *ebiten.Image, offsetX, offsetY int) {
 	// Calculate tile size based on zoom level
 	tileSize := m.getTileSize()
-	tilesPerRow := m.width / int(tileSize)
+	tileSizeInt := int(tileSize)
+	if tileSizeInt <= 0 {
+		return
+	}
+	tilesPerRow := m.width / tileSizeInt
+	if tilesPerRow <= 0 {
+		return
+	}
 
 	// Build tile position map for belt rendering
 	tilePositions := make(map[string]belt.TilePosition)
