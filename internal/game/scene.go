@@ -276,11 +276,14 @@ func (gs *GameScene) handlePromptCancel() {
 // SetConfig sets the configuration from the start screen.
 // If a harness is specified, it will be started.
 func (gs *GameScene) SetConfig(config ui.GameConfig) {
+	gs.stopMainHarness()
 	gs.config = config
 
 	// Start the selected harness if one is specified
 	if config.Harness != "" && gs.registry.IsRegistered(config.Harness) {
 		gs.startHarness(config)
+	} else {
+		gs.onPromptSubmit = nil
 	}
 }
 
@@ -335,6 +338,27 @@ func (gs *GameScene) startHarness(config ui.GameConfig) {
 	// Start event processing goroutine
 	gs.harnessWg.Add(1)
 	go gs.processHarnessEvents()
+}
+
+// stopMainHarness stops the current harness and waits for its event processing to finish.
+func (gs *GameScene) stopMainHarness() {
+	if gs.mainHarness != nil {
+		if err := gs.mainHarness.Stop(); err != nil {
+			// Log but don't fail on harness stop error
+			_ = err
+		}
+	}
+	if gs.harnessStop != nil {
+		gs.harnessStop()
+	}
+
+	// Wait for event processing goroutine to complete
+	gs.harnessWg.Wait()
+
+	gs.mainHarness = nil
+	gs.harnessCtx = nil
+	gs.harnessStop = nil
+	gs.onPromptSubmit = nil
 }
 
 // processHarnessEvents reads events from the main harness and processes them.
@@ -677,19 +701,7 @@ func (gs *GameScene) Close() error {
 		gs.productionWatcher.Stop()
 	}
 
-	// Stop the main harness if running
-	if gs.mainHarness != nil {
-		if err := gs.mainHarness.Stop(); err != nil {
-			// Log but don't fail on harness stop error
-			_ = err
-		}
-	}
-	if gs.harnessStop != nil {
-		gs.harnessStop()
-	}
-
-	// Wait for event processing goroutine to complete
-	gs.harnessWg.Wait()
+	gs.stopMainHarness()
 
 	// Stop legacy interceptor
 	if gs.interceptor != nil {

@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +28,9 @@ func NewTestableHarness() *TestableHarness {
 func (t *TestableHarness) Start(ctx context.Context, config Config) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.IsStopped() {
+		return fmt.Errorf("test harness already stopped")
+	}
 	t.startCalled = true
 	t.SetRunning(true)
 	return nil
@@ -166,6 +170,22 @@ collectLoop:
 	}
 	if h.IsRunning() {
 		t.Error("Should not be running after Stop()")
+	}
+}
+
+func TestLifecycleRestartAfterStopFails(t *testing.T) {
+	h := NewTestableHarness()
+
+	config := NewConfig("/tmp")
+	if err := h.Start(context.Background(), config); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if err := h.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	if err := h.Start(context.Background(), config); err == nil {
+		t.Fatal("Start() should fail after Stop()")
 	}
 }
 
