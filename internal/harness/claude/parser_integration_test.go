@@ -17,18 +17,18 @@ var claudeStreamJSONSamples = []struct {
 	expectedType harness.EventType
 }{
 	{
-		name: "system_init",
-		json: `{"type":"system","subtype":"init","cwd":"/home/user/project","session_id":"abc-123","tools":["Task","Bash","Read"],"mcp_servers":[],"model":"claude-sonnet-4-5-20250929","permissionMode":"bypassPermissions","slash_commands":["compact"],"apiKeySource":"none","claude_code_version":"2.1.19","output_style":"default","agents":["Bash"],"skills":[],"plugins":[],"uuid":"xyz-456"}`,
+		name:         "system_init",
+		json:         `{"type":"system","subtype":"init","cwd":"/home/user/project","session_id":"abc-123","tools":["Task","Bash","Read"],"mcp_servers":[],"model":"claude-sonnet-4-5-20250929","permissionMode":"bypassPermissions","slash_commands":["compact"],"apiKeySource":"none","claude_code_version":"2.1.19","output_style":"default","agents":["Bash"],"skills":[],"plugins":[],"uuid":"xyz-456"}`,
 		expectedType: harness.EventTurnStart,
 	},
 	{
-		name: "assistant_text_response",
-		json: `{"type":"assistant","message":{"model":"claude-sonnet-4-5-20250929","id":"msg_123","type":"message","role":"assistant","content":[{"type":"text","text":"Hello! How can I help you today?"}],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":2,"output_tokens":10}},"parent_tool_use_id":null,"session_id":"abc-123","uuid":"def-789"}`,
+		name:         "assistant_text_response",
+		json:         `{"type":"assistant","message":{"model":"claude-sonnet-4-5-20250929","id":"msg_123","type":"message","role":"assistant","content":[{"type":"text","text":"Hello! How can I help you today?"}],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":2,"output_tokens":10}},"parent_tool_use_id":null,"session_id":"abc-123","uuid":"def-789"}`,
 		expectedType: harness.EventText,
 	},
 	{
-		name: "result_success",
-		json: `{"type":"result","subtype":"success","is_error":false,"duration_ms":1500,"duration_api_ms":1400,"num_turns":1,"result":"Hello! How can I help you today?","session_id":"abc-123","total_cost_usd":0.001,"usage":{"input_tokens":2,"output_tokens":10},"modelUsage":{},"permission_denials":[],"uuid":"ghi-012"}`,
+		name:         "result_success",
+		json:         `{"type":"result","subtype":"success","is_error":false,"duration_ms":1500,"duration_api_ms":1400,"num_turns":1,"result":"Hello! How can I help you today?","session_id":"abc-123","total_cost_usd":0.001,"usage":{"input_tokens":2,"output_tokens":10},"modelUsage":{},"permission_denials":[],"uuid":"ghi-012"}`,
 		expectedType: harness.EventTurnComplete,
 	},
 }
