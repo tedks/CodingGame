@@ -27,6 +27,7 @@ go_test(
         "discovery_test.go",
         "registry_test.go",
         "renderer_test.go",
+        "watcher_test.go",
     ],
     embed = [":capability"],
 )
