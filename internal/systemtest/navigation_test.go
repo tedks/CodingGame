@@ -1,6 +1,7 @@
 package systemtest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -10,6 +11,28 @@ import (
 
 // Navigation tests verify hjkl keys, arrow keys, and zoom controls.
 
+func runScenarioOnHandler(t *testing.T, h *input.Handler, source *testutil.TestInputSource, scenario *testutil.Scenario) {
+	t.Helper()
+
+	for i, step := range scenario.Steps {
+		if step.Action != nil {
+			step.Action.Apply(source)
+		}
+
+		frames := step.WaitFrames + 1
+		for frame := 0; frame < frames; frame++ {
+			source.AdvanceFrame()
+			h.Update()
+		}
+
+		if step.Assertion != nil {
+			if err := step.Assertion(); err != nil {
+				t.Fatalf("scenario %q step %d failed: %v", scenario.Name, i, err)
+			}
+		}
+	}
+}
+
 func testNavigationHKeyPansLeft(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	h := testHandler(source)
@@ -17,15 +40,21 @@ func testNavigationHKeyPansLeft(t *testing.T) {
 	// Verify initial state
 	assertMode(t, h, input.ModeNormal)
 
-	// Press H key
-	source.QueueKeyPress(ebiten.KeyH)
-	source.AdvanceFrame()
-	h.Update()
+	scenario := testutil.NewScenario("NavigationHKeyPansLeft")
+	scenario.PressWithCheck(ebiten.KeyH, 0, func() error {
+		if !h.IsActionHeld(input.ActionMoveLeft) {
+			return fmt.Errorf("expected ActionMoveLeft to be held after H key press")
+		}
+		return nil
+	})
+	scenario.WaitWithCheck(0, func() error {
+		if h.IsActionHeld(input.ActionMoveLeft) {
+			return fmt.Errorf("expected ActionMoveLeft to be released after key press frame")
+		}
+		return nil
+	})
 
-	// Check that PanLeft action was triggered
-	if !h.IsActionHeld(input.ActionMoveLeft) {
-		// The key should still be held for this frame
-	}
+	runScenarioOnHandler(t, h, source, scenario)
 }
 
 func testNavigationJKeyPansDown(t *testing.T) {
@@ -35,15 +64,21 @@ func testNavigationJKeyPansDown(t *testing.T) {
 	// Verify initial state
 	assertMode(t, h, input.ModeNormal)
 
-	// Press J key
-	source.QueueKeyPress(ebiten.KeyJ)
-	source.AdvanceFrame()
-	h.Update()
+	scenario := testutil.NewScenario("NavigationJKeyPansDown")
+	scenario.PressWithCheck(ebiten.KeyJ, 0, func() error {
+		if !h.IsActionHeld(input.ActionMoveDown) {
+			return fmt.Errorf("expected ActionMoveDown to be held after J key press")
+		}
+		return nil
+	})
+	scenario.WaitWithCheck(0, func() error {
+		if h.IsActionHeld(input.ActionMoveDown) {
+			return fmt.Errorf("expected ActionMoveDown to be released after key press frame")
+		}
+		return nil
+	})
 
-	// Action should be recognized
-	if !h.IsActionHeld(input.ActionMoveDown) {
-		// Expected behavior for panning
-	}
+	runScenarioOnHandler(t, h, source, scenario)
 }
 
 func testNavigationKKeyPansUp(t *testing.T) {
@@ -53,15 +88,21 @@ func testNavigationKKeyPansUp(t *testing.T) {
 	// Verify initial state
 	assertMode(t, h, input.ModeNormal)
 
-	// Press K key
-	source.QueueKeyPress(ebiten.KeyK)
-	source.AdvanceFrame()
-	h.Update()
+	scenario := testutil.NewScenario("NavigationKKeyPansUp")
+	scenario.PressWithCheck(ebiten.KeyK, 0, func() error {
+		if !h.IsActionHeld(input.ActionMoveUp) {
+			return fmt.Errorf("expected ActionMoveUp to be held after K key press")
+		}
+		return nil
+	})
+	scenario.WaitWithCheck(0, func() error {
+		if h.IsActionHeld(input.ActionMoveUp) {
+			return fmt.Errorf("expected ActionMoveUp to be released after key press frame")
+		}
+		return nil
+	})
 
-	// Action should be recognized
-	if !h.IsActionHeld(input.ActionMoveUp) {
-		// Expected behavior for panning
-	}
+	runScenarioOnHandler(t, h, source, scenario)
 }
 
 func testNavigationLKeyPansRight(t *testing.T) {
@@ -71,21 +112,24 @@ func testNavigationLKeyPansRight(t *testing.T) {
 	// Verify initial state
 	assertMode(t, h, input.ModeNormal)
 
-	// Press L key
-	source.QueueKeyPress(ebiten.KeyL)
-	source.AdvanceFrame()
-	h.Update()
+	scenario := testutil.NewScenario("NavigationLKeyPansRight")
+	scenario.PressWithCheck(ebiten.KeyL, 0, func() error {
+		if !h.IsActionHeld(input.ActionMoveRight) {
+			return fmt.Errorf("expected ActionMoveRight to be held after L key press")
+		}
+		return nil
+	})
+	scenario.WaitWithCheck(0, func() error {
+		if h.IsActionHeld(input.ActionMoveRight) {
+			return fmt.Errorf("expected ActionMoveRight to be released after key press frame")
+		}
+		return nil
+	})
 
-	// Action should be recognized
-	if !h.IsActionHeld(input.ActionMoveRight) {
-		// Expected behavior for panning
-	}
+	runScenarioOnHandler(t, h, source, scenario)
 }
 
 func testNavigationArrowKeys(t *testing.T) {
-	source := testutil.NewTestInputSource()
-	h := testHandler(source)
-
 	// Test each arrow key
 	arrowTests := []struct {
 		name   string
@@ -100,14 +144,24 @@ func testNavigationArrowKeys(t *testing.T) {
 
 	for _, tt := range arrowTests {
 		t.Run(tt.name, func(t *testing.T) {
-			source.Clear()
-			source.QueueKeyPress(tt.key)
-			source.AdvanceFrame()
-			h.Update()
+			source := testutil.NewTestInputSource()
+			h := testHandler(source)
 
-			if !h.IsActionHeld(tt.action) {
-				// Arrow key should trigger corresponding pan action
-			}
+			scenario := testutil.NewScenario("NavigationArrowKey" + tt.name)
+			scenario.PressWithCheck(tt.key, 0, func() error {
+				if !h.IsActionHeld(tt.action) {
+					return fmt.Errorf("expected %v to be held after %s arrow key press", tt.action, tt.name)
+				}
+				return nil
+			})
+			scenario.WaitWithCheck(0, func() error {
+				if h.IsActionHeld(tt.action) {
+					return fmt.Errorf("expected %v to be released after %s arrow key press frame", tt.action, tt.name)
+				}
+				return nil
+			})
+
+			runScenarioOnHandler(t, h, source, scenario)
 		})
 	}
 }
@@ -116,55 +170,75 @@ func testNavigationPlusKeyZoomsIn(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	h := testHandler(source)
 
-	// Press = key (which is + without shift on US keyboards)
-	source.QueueKeyPress(ebiten.KeyEqual)
-	source.AdvanceFrame()
-	h.Update()
+	scenario := testutil.NewScenario("NavigationPlusKeyZoomsIn")
+	scenario.PressWithCheck(ebiten.KeyEqual, 0, func() error {
+		if !h.IsActionHeld(input.ActionZoomIn) {
+			return fmt.Errorf("expected ActionZoomIn to be held after + key press")
+		}
+		return nil
+	})
+	scenario.WaitWithCheck(0, func() error {
+		if h.IsActionHeld(input.ActionZoomIn) {
+			return fmt.Errorf("expected ActionZoomIn to be released after key press frame")
+		}
+		return nil
+	})
 
-	// Verify zoom in action
-	if !h.IsActionHeld(input.ActionZoomIn) {
-		// Zoom in should be triggered
-	}
+	runScenarioOnHandler(t, h, source, scenario)
 }
 
 func testNavigationMinusKeyZoomsOut(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	h := testHandler(source)
 
-	// Press - key
-	source.QueueKeyPress(ebiten.KeyMinus)
-	source.AdvanceFrame()
-	h.Update()
+	scenario := testutil.NewScenario("NavigationMinusKeyZoomsOut")
+	scenario.PressWithCheck(ebiten.KeyMinus, 0, func() error {
+		if !h.IsActionHeld(input.ActionZoomOut) {
+			return fmt.Errorf("expected ActionZoomOut to be held after - key press")
+		}
+		return nil
+	})
+	scenario.WaitWithCheck(0, func() error {
+		if h.IsActionHeld(input.ActionZoomOut) {
+			return fmt.Errorf("expected ActionZoomOut to be released after key press frame")
+		}
+		return nil
+	})
 
-	// Verify zoom out action
-	if !h.IsActionHeld(input.ActionZoomOut) {
-		// Zoom out should be triggered
-	}
+	runScenarioOnHandler(t, h, source, scenario)
 }
 
 func testNavigationHeldKeys(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	h := testHandler(source)
 
-	// Hold H key for multiple frames
-	source.QueueKeyHold(ebiten.KeyH, 5)
-
-	// Process 5 frames
-	for i := 0; i < 5; i++ {
-		source.AdvanceFrame()
-		h.Update()
-
-		// Key should be held each frame
-		if !source.IsKeyPressed(ebiten.KeyH) {
-			t.Errorf("frame %d: expected H key to be held", i)
+	heldCheck := func(frame int) func() error {
+		return func() error {
+			if !source.IsKeyPressed(ebiten.KeyH) {
+				return fmt.Errorf("frame %d: expected H key to be held", frame)
+			}
+			if !h.IsActionHeld(input.ActionMoveLeft) {
+				return fmt.Errorf("frame %d: expected ActionMoveLeft to be held", frame)
+			}
+			return nil
 		}
 	}
 
-	// After 5 frames, key should be released
-	source.AdvanceFrame()
-	h.Update()
-
-	if source.IsKeyPressed(ebiten.KeyH) {
-		t.Error("expected H key to be released after hold duration")
+	scenario := testutil.NewScenario("NavigationHeldKeys")
+	scenario.AddStep(testutil.HoldKey{Key: ebiten.KeyH, Duration: 5}, 0, heldCheck(0))
+	for frame := 1; frame < 5; frame++ {
+		frame := frame
+		scenario.WaitWithCheck(0, heldCheck(frame))
 	}
+	scenario.WaitWithCheck(0, func() error {
+		if source.IsKeyPressed(ebiten.KeyH) {
+			return fmt.Errorf("expected H key to be released after hold duration")
+		}
+		if h.IsActionHeld(input.ActionMoveLeft) {
+			return fmt.Errorf("expected ActionMoveLeft to be released after hold duration")
+		}
+		return nil
+	})
+
+	runScenarioOnHandler(t, h, source, scenario)
 }
