@@ -22,7 +22,8 @@ type Watcher struct {
 	wg           sync.WaitGroup
 
 	// File modification times for change detection
-	fileTimes map[string]time.Time
+	fileTimesMu sync.Mutex
+	fileTimes   map[string]time.Time
 }
 
 // NewWatcher creates a new watcher for the given registry.
@@ -117,10 +118,15 @@ func (w *Watcher) updateFileTimes() {
 		info, err := os.Stat(path)
 		if err != nil {
 			// File doesn't exist or can't be accessed
+			w.fileTimesMu.Lock()
 			delete(w.fileTimes, path)
+			w.fileTimesMu.Unlock()
 			continue
 		}
-		w.fileTimes[path] = info.ModTime()
+		modTime := info.ModTime()
+		w.fileTimesMu.Lock()
+		w.fileTimes[path] = modTime
+		w.fileTimesMu.Unlock()
 	}
 }
 
@@ -137,25 +143,30 @@ func (w *Watcher) checkForChanges() bool {
 	}
 
 	// Clean up paths no longer being watched (prevents memory leak)
+	w.fileTimesMu.Lock()
 	for path := range w.fileTimes {
 		if !currentPaths[path] {
 			delete(w.fileTimes, path)
 		}
 	}
+	w.fileTimesMu.Unlock()
 
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
 			// File doesn't exist now
+			w.fileTimesMu.Lock()
 			if _, existed := w.fileTimes[path]; existed {
 				// File was deleted
 				delete(w.fileTimes, path)
 				changed = true
 			}
+			w.fileTimesMu.Unlock()
 			continue
 		}
 
 		modTime := info.ModTime()
+		w.fileTimesMu.Lock()
 		if prevTime, exists := w.fileTimes[path]; exists {
 			if !modTime.Equal(prevTime) {
 				// File was modified
@@ -167,6 +178,7 @@ func (w *Watcher) checkForChanges() bool {
 			w.fileTimes[path] = modTime
 			changed = true
 		}
+		w.fileTimesMu.Unlock()
 	}
 
 	return changed

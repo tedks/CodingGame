@@ -1,6 +1,9 @@
 package debug
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // EventType represents the type of debug event.
 type EventType int
@@ -108,6 +111,7 @@ type EventHandler func(*Event)
 
 // EventBus manages debug event distribution.
 type EventBus struct {
+	mu       sync.RWMutex
 	handlers []EventHandler
 }
 
@@ -120,12 +124,18 @@ func NewEventBus() *EventBus {
 
 // Subscribe adds an event handler.
 func (bus *EventBus) Subscribe(handler EventHandler) {
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
 	bus.handlers = append(bus.handlers, handler)
 }
 
 // Publish sends an event to all handlers.
 func (bus *EventBus) Publish(event *Event) {
-	for _, h := range bus.handlers {
+	bus.mu.RLock()
+	handlers := append([]EventHandler(nil), bus.handlers...)
+	bus.mu.RUnlock()
+
+	for _, h := range handlers {
 		h(event)
 	}
 }
