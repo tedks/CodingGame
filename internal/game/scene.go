@@ -73,7 +73,8 @@ type GameScene struct {
 	currentView input.ViewNumber
 
 	// Callbacks
-	onPromptSubmit func(text string) // Called when a prompt is submitted
+	onPromptSubmit   func(text string)          // Called when a prompt is submitted
+	harnessEventHook func(event *harness.Event) // Optional test hook after event processing
 
 	// Input state
 	inputSource     input.InputSource
@@ -416,6 +417,10 @@ func (gs *GameScene) handleHarnessEvent(event *harness.Event) {
 	case harness.EventTurnComplete:
 		// Reset prompt panel to idle when turn completes
 		gs.promptPanel.SetState(ui.PromptStateIdle)
+	}
+
+	if gs.harnessEventHook != nil && event != nil {
+		gs.harnessEventHook(event)
 	}
 }
 

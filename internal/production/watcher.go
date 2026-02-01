@@ -26,10 +26,28 @@ type Watcher struct {
 	running      bool
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
+	newTicker    func(time.Duration) ticker
 
 	// File modification times for change detection
 	fileTimesMu sync.Mutex
 	fileTimes   map[string]time.Time
+}
+
+type ticker interface {
+	Channel() <-chan time.Time
+	Stop()
+}
+
+type realTicker struct {
+	*time.Ticker
+}
+
+func (t realTicker) Channel() <-chan time.Time {
+	return t.Ticker.C
+}
+
+func newRealTicker(interval time.Duration) ticker {
+	return realTicker{Ticker: time.NewTicker(interval)}
 }
 
 // NewWatcher creates a new watcher for the given registry.
@@ -38,7 +56,19 @@ func NewWatcher(registry *Registry) *Watcher {
 		registry:     registry,
 		pollInterval: 5 * time.Second,
 		fileTimes:    make(map[string]time.Time),
+		newTicker:    newRealTicker,
 	}
+}
+
+// SetTickerFactory configures the ticker creation function (for testing).
+// Changes take effect on the next Start() call; do not call while running.
+func (w *Watcher) SetTickerFactory(factory func(time.Duration) ticker) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.running {
+		return
+	}
+	w.newTicker = factory
 }
 
 // SetPollInterval configures the polling interval.
@@ -58,6 +88,11 @@ func (w *Watcher) Start() error {
 		w.mu.Unlock()
 		return nil // Already running
 	}
+	if w.newTicker == nil {
+		w.newTicker = newRealTicker
+	}
+	interval := w.pollInterval
+	newTicker := w.newTicker
 	w.running = true
 	w.stopCh = make(chan struct{})
 	w.mu.Unlock()
@@ -67,7 +102,7 @@ func (w *Watcher) Start() error {
 
 	// Start polling goroutine
 	w.wg.Add(1)
-	go w.poll()
+	go w.poll(interval, newTicker)
 
 	return nil
 }
@@ -95,21 +130,17 @@ func (w *Watcher) IsRunning() bool {
 }
 
 // poll is the main polling loop.
-func (w *Watcher) poll() {
+func (w *Watcher) poll(interval time.Duration, newTicker func(time.Duration) ticker) {
 	defer w.wg.Done()
 
-	w.mu.Lock()
-	interval := w.pollInterval
-	w.mu.Unlock()
-
-	ticker := time.NewTicker(interval)
+	ticker := newTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-w.stopCh:
 			return
-		case <-ticker.C:
+		case <-ticker.Channel():
 			if w.checkForChanges() {
 				w.registry.Refresh()
 			}
