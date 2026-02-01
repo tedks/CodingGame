@@ -227,6 +227,60 @@ func TestRegistryListener(t *testing.T) {
 	}
 }
 
+func TestRegistryListenerReceivesCopy(t *testing.T) {
+	r := NewRegistry()
+
+	ready := make(chan struct{})
+	firstCalled := make(chan struct{}, 1)
+	secondCalled := make(chan []*Service, 1)
+
+	first := &testListener{
+		onChanged: func(services []*Service) {
+			if len(services) > 0 {
+				services[0].Name = "mutated"
+			}
+			close(ready)
+			firstCalled <- struct{}{}
+		},
+	}
+	second := &testListener{
+		onChanged: func(services []*Service) {
+			<-ready
+			secondCalled <- services
+		},
+	}
+
+	r.AddListener(first)
+	r.AddListener(second)
+
+	mock := &mockDiscoverer{
+		name: "test",
+		services: []*Service{
+			NewService("api", "API", ServiceTypeHTTP, "http://localhost"),
+		},
+	}
+	r.RegisterDiscoverer(mock)
+	r.Refresh()
+
+	select {
+	case <-firstCalled:
+	case <-time.After(1 * time.Second):
+		t.Fatal("first listener was not called within timeout")
+	}
+
+	select {
+	case services := <-secondCalled:
+		if len(services) != 1 {
+			t.Fatalf("expected 1 service, got %d", len(services))
+		}
+		if services[0].Name != "API" {
+			t.Errorf("expected service name 'API', got %q", services[0].Name)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("second listener was not called within timeout")
+	}
+}
+
 func TestRegistryRemoveListener(t *testing.T) {
 	r := NewRegistry()
 

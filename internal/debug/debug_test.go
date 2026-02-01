@@ -51,6 +51,7 @@ func TestSessionFrames(t *testing.T) {
 	s := NewSession("test-1", "go", "/project")
 
 	frame1 := NewFrame(0, "main.doWork", "main.go", 42)
+	frame1.AddArgument(NewVariable("x", "int", "1"))
 	frame2 := NewFrame(1, "main.main", "main.go", 10)
 
 	s.SetFrames([]*Frame{frame1, frame2})
@@ -59,13 +60,44 @@ func TestSessionFrames(t *testing.T) {
 	if len(frames) != 2 {
 		t.Fatalf("expected 2 frames, got %d", len(frames))
 	}
+	if frames[0].Function != "main.doWork" {
+		t.Errorf("expected function 'main.doWork', got '%s'", frames[0].Function)
+	}
+
+	// Mutate returned frames to ensure they are copies.
+	frames[0].Function = "mutated"
+	if len(frames[0].Arguments) != 1 {
+		t.Fatalf("expected 1 argument, got %d", len(frames[0].Arguments))
+	}
+	frames[0].Arguments[0].Name = "mutated"
 
 	current := s.CurrentFrame()
-	if current != frame1 {
-		t.Error("expected current frame to be frame1")
+	if current == nil {
+		t.Fatal("expected current frame, got nil")
 	}
 	if current.Function != "main.doWork" {
 		t.Errorf("expected function 'main.doWork', got '%s'", current.Function)
+	}
+	if len(current.Arguments) != 1 {
+		t.Errorf("expected 1 argument, got %d", len(current.Arguments))
+	} else if current.Arguments[0].Name != "x" {
+		t.Errorf("expected argument name 'x', got '%s'", current.Arguments[0].Name)
+	}
+
+	// Mutate original frame after SetFrames to ensure session cloned inputs.
+	frame1.Function = "changed"
+	frame1.Arguments[0].Name = "changed"
+	currentAgain := s.CurrentFrame()
+	if currentAgain == nil {
+		t.Fatal("expected current frame, got nil")
+	}
+	if currentAgain.Function != "main.doWork" {
+		t.Errorf("expected function 'main.doWork', got '%s'", currentAgain.Function)
+	}
+	if len(currentAgain.Arguments) != 1 {
+		t.Errorf("expected 1 argument, got %d", len(currentAgain.Arguments))
+	} else if currentAgain.Arguments[0].Name != "x" {
+		t.Errorf("expected argument name 'x', got '%s'", currentAgain.Arguments[0].Name)
 	}
 }
 

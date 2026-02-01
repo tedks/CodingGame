@@ -95,15 +95,16 @@ func (r *Registry) Refresh() int {
 	// Notify listeners (with panic recovery to prevent listener crashes from taking down the registry)
 	all := r.GetAll()
 	for _, l := range listeners {
-		go func(listener RegistryListener) {
+		caps := cloneCapabilities(all)
+		go func(listener RegistryListener, caps []*Capability) {
 			defer func() {
 				if rec := recover(); rec != nil {
 					// Silently ignore panics from listeners
 					// In production, this could be logged
 				}
 			}()
-			listener.OnCapabilitiesChanged(all)
-		}(l)
+			listener.OnCapabilitiesChanged(caps)
+		}(l, caps)
 	}
 
 	return len(newCaps)
@@ -141,7 +142,7 @@ func (r *Registry) GetAll() []*Capability {
 
 	caps := make([]*Capability, 0, len(r.capabilities))
 	for _, cap := range r.capabilities {
-		caps = append(caps, cap)
+		caps = append(caps, cloneCapability(cap))
 	}
 
 	// Sort by domain first, then by name within domain
@@ -163,7 +164,7 @@ func (r *Registry) GetByDomain(domain Domain) []*Capability {
 	var caps []*Capability
 	for _, cap := range r.capabilities {
 		if cap.Domain == domain {
-			caps = append(caps, cap)
+			caps = append(caps, cloneCapability(cap))
 		}
 	}
 
@@ -182,7 +183,7 @@ func (r *Registry) GetByType(capType CapabilityType) []*Capability {
 	var caps []*Capability
 	for _, cap := range r.capabilities {
 		if cap.Type == capType {
-			caps = append(caps, cap)
+			caps = append(caps, cloneCapability(cap))
 		}
 	}
 
@@ -197,7 +198,7 @@ func (r *Registry) GetByType(capType CapabilityType) []*Capability {
 func (r *Registry) Get(id string) *Capability {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.capabilities[id]
+	return cloneCapability(r.capabilities[id])
 }
 
 // Count returns the total number of capabilities.
@@ -229,6 +230,25 @@ func (r *Registry) WatchPaths() []string {
 		paths = append(paths, d.WatchPaths()...)
 	}
 	return paths
+}
+
+func cloneCapabilities(caps []*Capability) []*Capability {
+	if caps == nil {
+		return nil
+	}
+	cloned := make([]*Capability, len(caps))
+	for i, cap := range caps {
+		cloned[i] = cloneCapability(cap)
+	}
+	return cloned
+}
+
+func cloneCapability(capability *Capability) *Capability {
+	if capability == nil {
+		return nil
+	}
+	cloned := *capability
+	return &cloned
 }
 
 // domainOrder returns the sort order for a domain.
