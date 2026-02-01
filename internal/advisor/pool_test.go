@@ -420,20 +420,12 @@ func TestPool_Clear(t *testing.T) {
 
 // Mock listener for testing
 type mockListener struct {
-	mu           sync.Mutex
-	added        []*Advisor
-	removed      []string
-	insights     []*Insight
-	stateChanges []stateChange
+	mu      sync.Mutex
+	added   []*Advisor
+	removed []string
 	// Channels for synchronization in tests
 	addedCh   chan *Advisor
 	removedCh chan string
-}
-
-type stateChange struct {
-	advisor  *Advisor
-	oldState AdvisorState
-	newState AdvisorState
 }
 
 func newMockListener() *mockListener {
@@ -463,18 +455,6 @@ func (m *mockListener) OnAdvisorRemoved(advisorID string) {
 	case m.removedCh <- advisorID:
 	default:
 	}
-}
-
-func (m *mockListener) OnInsightGenerated(insight *Insight) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.insights = append(m.insights, insight)
-}
-
-func (m *mockListener) OnAdvisorStateChanged(advisor *Advisor, oldState, newState AdvisorState) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.stateChanges = append(m.stateChanges, stateChange{advisor, oldState, newState})
 }
 
 func TestPool_Listener_OnAdvisorAdded(t *testing.T) {

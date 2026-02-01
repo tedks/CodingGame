@@ -33,10 +33,6 @@ type PoolListener interface {
 	OnAdvisorAdded(advisor *Advisor)
 	// OnAdvisorRemoved is called when an advisor is removed from the pool
 	OnAdvisorRemoved(advisorID string)
-	// OnInsightGenerated is called when an advisor produces an insight
-	OnInsightGenerated(insight *Insight)
-	// OnAdvisorStateChanged is called when an advisor changes state
-	OnAdvisorStateChanged(advisor *Advisor, oldState, newState AdvisorState)
 }
 
 // NewPool creates a new advisor pool
@@ -348,32 +344,6 @@ type PoolMetrics struct {
 	TotalInsights    int
 	AcceptedInsights int
 	RejectedInsights int
-}
-
-// notifyInsight notifies all listeners about a new insight
-func (p *Pool) notifyInsight(insight *Insight) {
-	p.mu.RLock()
-	listeners := make([]PoolListener, len(p.listeners))
-	copy(listeners, p.listeners)
-	p.mu.RUnlock()
-
-	// Call listeners synchronously (they should be fast callbacks)
-	for _, listener := range listeners {
-		listener.OnInsightGenerated(insight)
-	}
-}
-
-// notifyStateChange notifies all listeners about an advisor state change
-func (p *Pool) notifyStateChange(advisor *Advisor, oldState, newState AdvisorState) {
-	p.mu.RLock()
-	listeners := make([]PoolListener, len(p.listeners))
-	copy(listeners, p.listeners)
-	p.mu.RUnlock()
-
-	// Call listeners synchronously (they should be fast callbacks)
-	for _, listener := range listeners {
-		listener.OnAdvisorStateChanged(advisor, oldState, newState)
-	}
 }
 
 // Clear removes all advisors from the pool
