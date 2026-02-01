@@ -76,6 +76,7 @@ type GameScene struct {
 	onPromptSubmit func(text string) // Called when a prompt is submitted
 
 	// Input state
+	inputSource     input.InputSource
 	lastMouseX      int
 	lastMouseY      int
 	wasMousePressed bool
@@ -166,6 +167,7 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		multiagentOrchestrator: maOrchestrator,
 		multiagentRenderer:     maRenderer,
 		currentView:            input.ViewMap,
+		inputSource:            input.DefaultSource,
 	}
 
 	// Wire up input handler callbacks
@@ -180,6 +182,21 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	}
 
 	return gs, nil
+}
+
+// SetInputSource sets the input source for testing.
+// Pass nil to reset to the default Ebitengine source.
+func (gs *GameScene) SetInputSource(source input.InputSource) {
+	if source == nil {
+		source = input.DefaultSource
+	}
+	gs.inputSource = source
+	if gs.inputHandler != nil {
+		gs.inputHandler.SetInputSource(source)
+	}
+	if gs.mapView != nil {
+		gs.mapView.SetInputSource(source)
+	}
 }
 
 // setupInputCallbacks wires up the input handler callbacks to the game scene.
@@ -439,17 +456,18 @@ func (gs *GameScene) resolveFilePath(path string) string {
 // handlePromptPanelDrag handles mouse drag for resizing the prompt panel.
 // Returns true if the prompt panel consumed the input.
 func (gs *GameScene) handlePromptPanelDrag() bool {
-	x, y := ebiten.CursorPosition()
+	inputSource := gs.inputSource
+	x, y := inputSource.CursorPosition()
 	consumed := false
 
 	// Handle mouse wheel scrolling
-	_, wheelY := ebiten.Wheel()
+	_, wheelY := inputSource.Wheel()
 	if wheelY != 0 && gs.promptPanel.HandleScroll(x, y, 0, wheelY) {
 		consumed = true
 	}
 
 	// Check for mouse button state
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		if gs.promptPanel.IsDragging() {
 			// Continue dragging
 			gs.promptPanel.UpdateDrag(y)
@@ -469,7 +487,7 @@ func (gs *GameScene) handlePromptPanelDrag() bool {
 		}
 
 		// Handle click on mouse release (detect click by checking if we just released)
-		if gs.wasMousePressed && !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		if gs.wasMousePressed && !inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 			if gs.promptPanel.HandleClick(x, y) {
 				consumed = true
 			}
@@ -477,13 +495,21 @@ func (gs *GameScene) handlePromptPanelDrag() bool {
 	}
 
 	// Track mouse pressed state for click detection
-	gs.wasMousePressed = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	gs.wasMousePressed = inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
 	// Update last mouse position
 	gs.lastMouseX = x
 	gs.lastMouseY = y
 
 	return consumed
+}
+
+// PromptPanelHeight returns the current prompt panel height.
+func (gs *GameScene) PromptPanelHeight() int {
+	if gs.promptPanel == nil {
+		return 0
+	}
+	return gs.promptPanel.Height()
 }
 
 // Update implements ui.Scene.

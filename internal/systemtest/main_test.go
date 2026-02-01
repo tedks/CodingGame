@@ -131,6 +131,7 @@ func TestSystemTests(t *testing.T) {
 		t.Run("DragHandle", testConversationPanelDragHandle)
 		t.Run("SubmitFlow", testConversationPanelSubmitFlow)
 		t.Run("HeightAnimation", testConversationPanelHeightAnimation)
+		t.Run("GameSceneDragUsesInputSource", testGameScenePromptPanelDragUsesInputSource)
 	})
 }
 
