@@ -164,3 +164,16 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// If we get here without deadlock or data race, test passes
 }
+
+func TestDrawWithNoResourcesDoesNotPanic(t *testing.T) {
+	tracker := New()
+	tracker.resources = nil
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Draw panicked with no resources: %v", r)
+		}
+	}()
+
+	tracker.Draw(nil, 0, 0, 100, 20)
+}

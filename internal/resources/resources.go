@@ -81,6 +81,10 @@ func (t *Tracker) Draw(screen *ebiten.Image, x, y, width, height int) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
+	if len(t.resources) == 0 {
+		return
+	}
+
 	// Draw background
 	vector.DrawFilledRect(
 		screen,

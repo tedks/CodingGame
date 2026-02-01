@@ -70,6 +70,15 @@ func (r *Renderer) Draw(screen *ebiten.Image, services []*Service, x, y, width, 
 	}
 }
 
+func weatherSummaryX(x, width int) (int, bool) {
+	weatherX := x + width - 300
+	minX := x + prodPadding
+	if weatherX < minX {
+		return minX, false
+	}
+	return weatherX, true
+}
+
 // drawHeader renders the summary header with weather overview.
 func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, width int) {
 	// Draw background
@@ -99,10 +108,12 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, w
 	ebitenutil.DebugPrintAt(screen, summary, summaryX, summaryY)
 
 	// Draw weather summary
-	weatherX := x + width - 300
-	weatherSummary := fmt.Sprintf("Clear: %d | Cloudy: %d | Storm: %d",
-		weatherCounts[WeatherClear], weatherCounts[WeatherCloudy], weatherCounts[WeatherStorm])
-	ebitenutil.DebugPrintAt(screen, weatherSummary, weatherX, summaryY)
+	weatherX, ok := weatherSummaryX(x, width)
+	if ok {
+		weatherSummary := fmt.Sprintf("Clear: %d | Cloudy: %d | Storm: %d",
+			weatherCounts[WeatherClear], weatherCounts[WeatherCloudy], weatherCounts[WeatherStorm])
+		ebitenutil.DebugPrintAt(screen, weatherSummary, weatherX, summaryY)
+	}
 }
 
 // drawEmptyState renders a message when no services are configured.

@@ -43,6 +43,10 @@ func NewGraph() *Graph {
 //
 // Returns the connection (existing or new).
 func (g *Graph) Add(c *Connection) *Connection {
+	if c == nil {
+		return nil
+	}
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
