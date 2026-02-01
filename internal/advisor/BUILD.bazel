@@ -12,6 +12,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//internal/harness",
+        "@com_github_bmatcuk_doublestar_v4//:doublestar",
     ],
 )
 
