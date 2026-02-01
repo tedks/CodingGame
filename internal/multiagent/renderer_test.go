@@ -86,3 +86,20 @@ func TestGetUsageColor(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenSummaryXGuard(t *testing.T) {
+	x := 5
+
+	if _, ok := tokenSummaryX(x, 100); ok {
+		t.Error("expected guard to skip token summary for narrow width")
+	}
+
+	want := x + 300 - 200
+	got, ok := tokenSummaryX(x, 300)
+	if !ok {
+		t.Fatal("expected token summary to render for wide width")
+	}
+	if got != want {
+		t.Errorf("tokenSummaryX = %d, want %d", got, want)
+	}
+}

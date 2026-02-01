@@ -65,6 +65,23 @@ func TestWeatherDisplay(t *testing.T) {
 	}
 }
 
+func TestWeatherSummaryXGuard(t *testing.T) {
+	x := 10
+
+	if _, ok := weatherSummaryX(x, 100); ok {
+		t.Error("expected guard to skip weather summary for narrow width")
+	}
+
+	want := x + 500 - 300
+	got, ok := weatherSummaryX(x, 500)
+	if !ok {
+		t.Fatal("expected weather summary to render for wide width")
+	}
+	if got != want {
+		t.Errorf("weatherSummaryX = %d, want %d", got, want)
+	}
+}
+
 func TestLayoutConstants(t *testing.T) {
 	// Verify layout constants are reasonable
 	if prodCityWidth <= 0 {

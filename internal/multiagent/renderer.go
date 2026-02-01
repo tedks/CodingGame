@@ -71,6 +71,15 @@ func (r *Renderer) Draw(screen *ebiten.Image, agents []*Agent, x, y, width, heig
 	}
 }
 
+func tokenSummaryX(x, width int) (int, bool) {
+	tokenX := x + width - 200
+	minX := x + agentPadding
+	if tokenX < minX {
+		return minX, false
+	}
+	return tokenX, true
+}
+
 // drawHeader renders the summary header.
 func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width int) {
 	// Draw background
@@ -100,9 +109,11 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width
 	ebitenutil.DebugPrintAt(screen, summary, summaryX, summaryY)
 
 	// Draw token usage
-	tokenX := x + width - 200
-	tokenSummary := fmt.Sprintf("Total tokens: %dk", totalTokens/1000)
-	ebitenutil.DebugPrintAt(screen, tokenSummary, tokenX, summaryY)
+	tokenX, ok := tokenSummaryX(x, width)
+	if ok {
+		tokenSummary := fmt.Sprintf("Total tokens: %dk", totalTokens/1000)
+		ebitenutil.DebugPrintAt(screen, tokenSummary, tokenX, summaryY)
+	}
 }
 
 // drawEmptyState renders a message when no agents are active.
