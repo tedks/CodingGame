@@ -169,7 +169,7 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 	usageY := y + 68
 	usageWidth := agentCardWidth - 16
 	usageHeight := 12
-	usage := agent.ContextUsage()
+	usage := clampUnitInterval(agent.ContextUsage())
 
 	// Background
 	vector.DrawFilledRect(screen, float32(x+8), float32(usageY), float32(usageWidth), float32(usageHeight),
@@ -202,6 +202,16 @@ func getUsageColor(usage float64) color.RGBA {
 		return color.RGBA{R: 0xF5, G: 0x7F, B: 0x17, A: 0xFF} // Orange
 	}
 	return color.RGBA{R: 0xC6, G: 0x28, B: 0x28, A: 0xFF} // Red
+}
+
+func clampUnitInterval(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 // GetStatusColor returns the color associated with a status.

@@ -121,6 +121,25 @@ func TestFormatResourceText(t *testing.T) {
 	}
 }
 
+func TestClampRatio(t *testing.T) {
+	tests := []struct {
+		value    float32
+		expected float32
+	}{
+		{-0.25, 0},
+		{0, 0},
+		{0.4, 0.4},
+		{1, 1},
+		{1.1, 1},
+	}
+
+	for _, tc := range tests {
+		if got := clampRatio(tc.value); got != tc.expected {
+			t.Errorf("clampRatio(%v) = %v, want %v", tc.value, got, tc.expected)
+		}
+	}
+}
+
 func TestGetResourceNotFound(t *testing.T) {
 	tracker := New()
 

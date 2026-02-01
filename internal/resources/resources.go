@@ -111,10 +111,7 @@ func (t *Tracker) drawResource(screen *ebiten.Image, r *Resource, x, y, width, h
 	// Calculate fill percentage
 	fillPct := float32(0)
 	if r.Max > 0 {
-		fillPct = float32(r.Current) / float32(r.Max)
-		if fillPct > 1.0 {
-			fillPct = 1.0
-		}
+		fillPct = clampRatio(float32(r.Current) / float32(r.Max))
 	}
 
 	// Draw resource bar background
@@ -148,6 +145,16 @@ func (t *Tracker) drawResource(screen *ebiten.Image, r *Resource, x, y, width, h
 	// Draw resource text
 	text := t.formatResourceText(r)
 	ebitenutil.DebugPrintAt(screen, text, x+padding, y+5)
+}
+
+func clampRatio(value float32) float32 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }
 
 // formatResourceText formats the resource display text

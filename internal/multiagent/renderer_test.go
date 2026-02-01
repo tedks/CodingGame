@@ -87,6 +87,25 @@ func TestGetUsageColor(t *testing.T) {
 	}
 }
 
+func TestClampUnitInterval(t *testing.T) {
+	tests := []struct {
+		value    float64
+		expected float64
+	}{
+		{-0.5, 0},
+		{0, 0},
+		{0.35, 0.35},
+		{1, 1},
+		{1.25, 1},
+	}
+
+	for _, tc := range tests {
+		if got := clampUnitInterval(tc.value); got != tc.expected {
+			t.Errorf("clampUnitInterval(%v) = %v, want %v", tc.value, got, tc.expected)
+		}
+	}
+}
+
 func TestTokenSummaryXGuard(t *testing.T) {
 	x := 5
 

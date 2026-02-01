@@ -218,7 +218,17 @@ func (u *Unit) SetPosition(x, y float64) {
 func (u *Unit) SetCoverage(percent float64) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	u.metrics.CoveragePercent = percent
+	u.metrics.CoveragePercent = clampPercent(percent)
+}
+
+func clampPercent(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 100 {
+		return 100
+	}
+	return value
 }
 
 // updateMetrics recalculates aggregated metrics from run history

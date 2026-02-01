@@ -254,6 +254,20 @@ func TestUnitSetCoverage(t *testing.T) {
 	}
 }
 
+func TestUnitSetCoverageClamps(t *testing.T) {
+	u := New("test", "test", 0, 0)
+
+	u.SetCoverage(-12.5)
+	if got := u.Metrics().CoveragePercent; got != 0 {
+		t.Errorf("CoveragePercent = %v, want 0", got)
+	}
+
+	u.SetCoverage(250.0)
+	if got := u.Metrics().CoveragePercent; got != 100 {
+		t.Errorf("CoveragePercent = %v, want 100", got)
+	}
+}
+
 func TestUnitRunHistory(t *testing.T) {
 	u := New("test", "test", 0, 0)
 
