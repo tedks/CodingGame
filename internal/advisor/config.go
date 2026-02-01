@@ -17,6 +17,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 // TriggerMode defines when an advisor runs
@@ -134,8 +136,11 @@ func (c *Config) MatchesFile(filePath string) bool {
 		return true
 	}
 
+	slashPath := filepath.ToSlash(filePath)
+	baseName := filepath.Base(filePath)
 	for _, pattern := range c.FocusPatterns {
-		matched, err := filepath.Match(pattern, filePath)
+		slashPattern := filepath.ToSlash(pattern)
+		matched, err := doublestar.Match(slashPattern, slashPath)
 		if err != nil {
 			// Invalid pattern, skip it
 			continue
@@ -146,7 +151,7 @@ func (c *Config) MatchesFile(filePath string) bool {
 
 		// Also try matching against the base name for patterns without path separators
 		if !containsPathSeparator(pattern) {
-			matched, err = filepath.Match(pattern, filepath.Base(filePath))
+			matched, err = doublestar.Match(slashPattern, baseName)
 			if err == nil && matched {
 				return true
 			}

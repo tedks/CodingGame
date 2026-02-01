@@ -35,6 +35,21 @@ const (
 
 // Agent represents an active Claude agent with its own context boundary.
 // Each agent maintains its own "fog of war" - the set of files it has read.
+//
+// # Concurrency
+//
+// mu protects all fields on Agent. The id, name, and icon are immutable after
+// construction; all other fields are mutable and guarded by mu.
+//
+// # State machine
+//
+// Idle -> Working -> Paused -> Working
+// Working/Paused -> Completed
+// Any state -> Error (SetError)
+// Reset returns the agent to Idle and clears context.
+//
+// StartTask only transitions to Working from non-Working states, PauseTask only
+// transitions from Working, and ResumeTask only transitions from Paused.
 type Agent struct {
 	mu sync.RWMutex
 
@@ -63,6 +78,23 @@ type Agent struct {
 
 	// Error tracking
 	lastError error
+}
+
+// AgentSnapshot is an immutable, point-in-time view of agent state.
+// Modifying the snapshot does not affect the underlying agent.
+type AgentSnapshot struct {
+	ID           string
+	Name         string
+	Icon         string
+	Status       AgentStatus
+	CurrentTask  string
+	LastActivity time.Time
+	TokensUsed   int64
+	TokenLimit   int64
+	ContextUsage float64
+	FileCount    int
+	PositionX    float64
+	PositionY    float64
 }
 
 // NewAgent creates a new agent with the given parameters.
@@ -97,6 +129,26 @@ func (a *Agent) Icon() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.icon
+}
+
+// Snapshot returns an immutable, point-in-time view of agent state.
+func (a *Agent) Snapshot() AgentSnapshot {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return AgentSnapshot{
+		ID:           a.id,
+		Name:         a.name,
+		Icon:         a.icon,
+		Status:       a.status,
+		CurrentTask:  a.currentTask,
+		LastActivity: a.lastActivity,
+		TokensUsed:   a.tokensUsed,
+		TokenLimit:   a.tokenLimit,
+		ContextUsage: a.contextUsage,
+		FileCount:    len(a.filesRead),
+		PositionX:    a.x,
+		PositionY:    a.y,
+	}
 }
 
 // Status returns the agent's current status.

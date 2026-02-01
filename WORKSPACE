@@ -35,6 +35,13 @@ gazelle_dependencies()
 load("@bazel_gazelle//:deps.bzl", "go_repository")
 
 go_repository(
+    name = "com_github_bmatcuk_doublestar_v4",
+    importpath = "github.com/bmatcuk/doublestar/v4",
+    sum = "h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=",
+    version = "v4.10.0",
+)
+
+go_repository(
     name = "com_github_hajimehoshi_ebiten_v2",
     importpath = "github.com/hajimehoshi/ebiten/v2",
     sum = "h1:WuNgM24uJxwdLZLqM8SXLAGVBof/45udRjo2tJoTpM0=",

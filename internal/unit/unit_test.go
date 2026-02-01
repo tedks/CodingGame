@@ -101,6 +101,39 @@ func TestUnitRecordTest_Passed(t *testing.T) {
 	}
 }
 
+func TestUnitLastTestResultReturnsCopy(t *testing.T) {
+	u := New("test", "test", 0, 0)
+	now := time.Now()
+	result := &TestResult{
+		Passed:    true,
+		Duration:  100 * time.Millisecond,
+		Timestamp: now,
+	}
+
+	u.RecordTest(result)
+
+	// Mutate original result after recording.
+	result.Passed = false
+
+	last := u.LastTestResult()
+	if last == nil {
+		t.Fatal("LastTestResult() returned nil")
+	}
+	if !last.Passed {
+		t.Error("LastTestResult() reflected external mutation")
+	}
+
+	// Mutate returned result and ensure internal state is unchanged.
+	last.Passed = false
+	lastAgain := u.LastTestResult()
+	if lastAgain == nil {
+		t.Fatal("LastTestResult() returned nil")
+	}
+	if !lastAgain.Passed {
+		t.Error("LastTestResult() returned a reference instead of a copy")
+	}
+}
+
 func TestUnitRecordTest_Failed(t *testing.T) {
 	u := New("test", "test", 0, 0)
 
@@ -251,6 +284,20 @@ func TestUnitSetCoverage(t *testing.T) {
 	metrics = u.Metrics()
 	if metrics.CoveragePercent != 75.5 {
 		t.Errorf("after SetCoverage, CoveragePercent = %v, want 75.5", metrics.CoveragePercent)
+	}
+}
+
+func TestUnitSetCoverageClamps(t *testing.T) {
+	u := New("test", "test", 0, 0)
+
+	u.SetCoverage(-12.5)
+	if got := u.Metrics().CoveragePercent; got != 0 {
+		t.Errorf("CoveragePercent = %v, want 0", got)
+	}
+
+	u.SetCoverage(250.0)
+	if got := u.Metrics().CoveragePercent; got != 100 {
+		t.Errorf("CoveragePercent = %v, want 100", got)
 	}
 }
 
@@ -424,6 +471,18 @@ func TestTestMetrics_ZeroValues(t *testing.T) {
 	}
 	if metrics.CoveragePercent != 0.0 {
 		t.Errorf("CoveragePercent zero value = %v, want 0.0", metrics.CoveragePercent)
+	}
+	if metrics.MinDuration != 0 {
+		t.Errorf("MinDuration zero value = %v, want 0", metrics.MinDuration)
+	}
+	if metrics.MaxDuration != 0 {
+		t.Errorf("MaxDuration zero value = %v, want 0", metrics.MaxDuration)
+	}
+	if metrics.AvgDuration != 0 {
+		t.Errorf("AvgDuration zero value = %v, want 0", metrics.AvgDuration)
+	}
+	if metrics.LastDuration != 0 {
+		t.Errorf("LastDuration zero value = %v, want 0", metrics.LastDuration)
 	}
 }
 

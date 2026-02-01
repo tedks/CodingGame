@@ -6,6 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 // Renderer draws the capability inventory (tech tree view).
@@ -90,24 +91,52 @@ func (r *Renderer) Draw(screen *ebiten.Image, capabilities []*Capability, x, y, 
 
 	// Calculate column positions
 	domains := AllDomains()
-	numDomains := len(domains)
-	availableWidth := width - 2*r.padding
-	actualColumnWidth := availableWidth / numDomains
-	if actualColumnWidth > r.columnWidth {
-		actualColumnWidth = r.columnWidth
+	startYOffset, actualColumnWidth, columnHeight, ok := r.columnLayout(width, height, domains)
+	if !ok {
+		return
 	}
-
-	startY := y + r.padding + 20 + r.padding // 20 for title height
+	startY := y + startYOffset
+	contentWidth := actualColumnWidth - r.nodeMargin
 
 	// Draw each domain column
 	for i, domain := range domains {
 		colX := x + r.padding + i*actualColumnWidth
 		caps := byDomain[domain]
-		r.drawDomainColumn(screen, domain, caps, colX, startY, actualColumnWidth-r.nodeMargin, height-startY-r.padding)
+		r.drawDomainColumn(screen, domain, caps, colX, startY, contentWidth, columnHeight)
 	}
 
 	// Draw legend at bottom
 	r.drawLegend(screen, x+r.padding, y+height-40, width-2*r.padding)
+}
+
+func (r *Renderer) columnLayout(width, height int, domains []Domain) (startYOffset, columnWidth, columnHeight int, ok bool) {
+	if len(domains) == 0 {
+		return 0, 0, 0, false
+	}
+
+	availableWidth := width - 2*r.padding
+	if availableWidth <= 0 {
+		return 0, 0, 0, false
+	}
+
+	actualColumnWidth := availableWidth / len(domains)
+	if actualColumnWidth <= 0 {
+		return 0, 0, 0, false
+	}
+	if actualColumnWidth > r.columnWidth {
+		actualColumnWidth = r.columnWidth
+	}
+	if actualColumnWidth-r.nodeMargin <= 0 {
+		return 0, 0, 0, false
+	}
+
+	startYOffset = r.padding + 20 + r.padding
+	columnHeight = height - startYOffset - r.padding
+	if columnHeight <= 0 {
+		return 0, 0, 0, false
+	}
+
+	return startYOffset, actualColumnWidth, columnHeight, true
 }
 
 // drawDomainColumn draws a single domain column.
@@ -153,23 +182,12 @@ func (r *Renderer) drawCapabilityNode(screen *ebiten.Image, cap *Capability, x, 
 	if !cap.Enabled {
 		bgColor = color.RGBA{30, 30, 30, 200}
 	}
-	vector.DrawFilledRect(
-		screen,
-		float32(x), float32(y),
-		float32(width), float32(r.nodeHeight),
-		bgColor,
-		false,
-	)
-
-	// Left border accent by type
 	accentColor := r.getTypeColor(cap.Type)
-	vector.DrawFilledRect(
-		screen,
-		float32(x), float32(y),
-		4, float32(r.nodeHeight),
-		accentColor,
-		false,
-	)
+	ui.DrawCard(screen, x, y, width, r.nodeHeight, ui.CardStyle{
+		Background:  bgColor,
+		AccentWidth: 4,
+		AccentColor: accentColor,
+	})
 
 	// Name (top line)
 	nameY := y + 6

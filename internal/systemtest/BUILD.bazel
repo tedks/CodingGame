@@ -5,6 +5,7 @@ go_test(
     srcs = [
         "conversation_panel_test.go",
         "focus_test.go",
+        "game_scene_prompt_panel_test.go",
         "main_test.go",
         "mapview_mouse_test.go",
         "menu_test.go",
@@ -15,6 +16,7 @@ go_test(
         "views_test.go",
     ],
     deps = [
+        "//internal/game",
         "//internal/input",
         "//internal/mapview",
         "//internal/testutil",

@@ -11,10 +11,11 @@ import (
 type MockHarness struct {
 	*BaseHarness
 
-	mu      sync.Mutex
-	prompts []string // All prompts sent via SendPrompt
-	started bool
-	config  Config
+	mu        sync.Mutex
+	prompts   []string // All prompts sent via SendPrompt
+	started   bool
+	config    Config
+	closeOnce sync.Once
 }
 
 // NewMockHarness creates a new mock harness for testing.
@@ -30,6 +31,9 @@ func (m *MockHarness) Start(ctx context.Context, config Config) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.IsStopped() {
+		return fmt.Errorf("mock harness already stopped")
+	}
 	if m.started {
 		return fmt.Errorf("mock harness already started")
 	}
@@ -49,13 +53,15 @@ func (m *MockHarness) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.started {
+	if m.IsStopped() {
 		return nil
 	}
 
 	m.started = false
 	m.SetRunning(false)
-	m.CloseEvents()
+	m.closeOnce.Do(func() {
+		m.CloseEvents()
+	})
 	return nil
 }
 
@@ -129,6 +135,9 @@ func (m *MockHarness) StartConfig() Config {
 
 // SimulateEvent sends an event to consumers (for testing event handlers).
 func (m *MockHarness) SimulateEvent(event Event) {
+	if !m.IsRunning() || m.EventsClosed() {
+		return
+	}
 	m.EventsWritable() <- event
 }
 

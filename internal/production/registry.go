@@ -95,15 +95,16 @@ func (r *Registry) Refresh() int {
 	// Notify listeners (with panic recovery to prevent listener crashes from taking down the registry)
 	all := r.GetAll()
 	for _, l := range listeners {
-		go func(listener RegistryListener) {
+		services := cloneServices(all)
+		go func(listener RegistryListener, services []*Service) {
 			defer func() {
 				if rec := recover(); rec != nil {
 					// Silently ignore panics from listeners
 					// In production, this could be logged
 				}
 			}()
-			listener.OnServicesChanged(all)
-		}(l)
+			listener.OnServicesChanged(services)
+		}(l, services)
 	}
 
 	return len(newServices)
@@ -141,7 +142,7 @@ func (r *Registry) GetAll() []*Service {
 
 	services := make([]*Service, 0, len(r.services))
 	for _, svc := range r.services {
-		services = append(services, svc)
+		services = append(services, cloneService(svc))
 	}
 
 	sort.Slice(services, func(i, j int) bool {
@@ -159,7 +160,7 @@ func (r *Registry) GetByType(serviceType ServiceType) []*Service {
 	var services []*Service
 	for _, svc := range r.services {
 		if svc.Type == serviceType {
-			services = append(services, svc)
+			services = append(services, cloneService(svc))
 		}
 	}
 
@@ -178,7 +179,7 @@ func (r *Registry) GetByHealth(health HealthStatus) []*Service {
 	var services []*Service
 	for _, svc := range r.services {
 		if svc.Health == health {
-			services = append(services, svc)
+			services = append(services, cloneService(svc))
 		}
 	}
 
@@ -193,7 +194,7 @@ func (r *Registry) GetByHealth(health HealthStatus) []*Service {
 func (r *Registry) Get(id string) *Service {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.services[id]
+	return cloneService(r.services[id])
 }
 
 // Count returns the total number of services.
@@ -225,6 +226,31 @@ func (r *Registry) WatchPaths() []string {
 		paths = append(paths, d.WatchPaths()...)
 	}
 	return paths
+}
+
+func cloneServices(services []*Service) []*Service {
+	if services == nil {
+		return nil
+	}
+	cloned := make([]*Service, len(services))
+	for i, svc := range services {
+		cloned[i] = cloneService(svc)
+	}
+	return cloned
+}
+
+func cloneService(service *Service) *Service {
+	if service == nil {
+		return nil
+	}
+	cloned := *service
+	if service.Dependencies != nil {
+		cloned.Dependencies = append([]string(nil), service.Dependencies...)
+	}
+	if service.Dependents != nil {
+		cloned.Dependents = append([]string(nil), service.Dependents...)
+	}
+	return &cloned
 }
 
 // GetWeatherSummary returns a summary of weather conditions across all services.

@@ -53,6 +53,18 @@ func (s State) String() string {
 
 // Session represents an active debugging session.
 //
+// # Concurrency
+//
+// mu protects all fields on Session. Event handlers are invoked without holding mu;
+// handlers must be thread-safe and should avoid long-running work.
+//
+// # State machine
+//
+// Idle -> Running -> Paused -> Running
+// Running/Paused -> Stopped
+// Stopped is terminal. SetState does not enforce transitions; callers must
+// follow the expected sequence.
+//
 // Thread-safe: All methods are safe for concurrent access.
 type Session struct {
 	mu sync.RWMutex
@@ -74,6 +86,19 @@ type Session struct {
 
 	// Event handlers
 	handlers []EventHandler
+}
+
+// SessionSnapshot is an immutable, point-in-time view of session state.
+// Modifying the snapshot does not affect the underlying session.
+type SessionSnapshot struct {
+	ID          string
+	Language    string
+	TargetDir   string
+	StartTime   time.Time
+	State       State
+	Frames      []*Frame
+	DataFlows   []*DataFlow
+	Breakpoints []*Breakpoint
 }
 
 // NewSession creates a new debug session.
@@ -118,6 +143,22 @@ func (s *Session) State() State {
 	return s.state
 }
 
+// Snapshot returns an immutable, point-in-time view of session state.
+func (s *Session) Snapshot() SessionSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return SessionSnapshot{
+		ID:          s.id,
+		Language:    s.language,
+		TargetDir:   s.targetDir,
+		StartTime:   s.startTime,
+		State:       s.state,
+		Frames:      cloneFrames(s.frames),
+		DataFlows:   cloneDataFlows(s.dataFlows),
+		Breakpoints: cloneBreakpoints(s.breakpoints),
+	}
+}
+
 // SetState updates the session state and notifies handlers.
 func (s *Session) SetState(state State) {
 	s.mu.Lock()
@@ -148,9 +189,7 @@ func (s *Session) SetState(state State) {
 func (s *Session) Frames() []*Frame {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := make([]*Frame, len(s.frames))
-	copy(result, s.frames)
-	return result
+	return cloneFrames(s.frames)
 }
 
 // CurrentFrame returns the topmost stack frame, or nil if none.
@@ -160,15 +199,16 @@ func (s *Session) CurrentFrame() *Frame {
 	if len(s.frames) == 0 {
 		return nil
 	}
-	return s.frames[0]
+	return cloneFrame(s.frames[0])
 }
 
 // SetFrames updates the call stack.
 func (s *Session) SetFrames(frames []*Frame) {
 	s.mu.Lock()
-	s.frames = frames
+	s.frames = cloneFrames(frames)
 	handlers := make([]EventHandler, len(s.handlers))
 	copy(handlers, s.handlers)
+	frameCount := len(s.frames)
 	s.mu.Unlock()
 
 	event := &Event{
@@ -176,7 +216,7 @@ func (s *Session) SetFrames(frames []*Frame) {
 		SessionID: s.id,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"frame_count": len(frames),
+			"frame_count": frameCount,
 		},
 	}
 	for _, h := range handlers {

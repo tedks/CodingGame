@@ -173,3 +173,33 @@ func TestRendererColorsDifferByType(t *testing.T) {
 		colors[c] = ct
 	}
 }
+
+func TestColumnLayoutGuards(t *testing.T) {
+	r := NewRenderer()
+
+	if _, _, _, ok := r.columnLayout(100, 100, nil); ok {
+		t.Error("expected layout to fail with no domains")
+	}
+
+	domains := AllDomains()
+	if _, _, _, ok := r.columnLayout(r.padding*2, 100, domains); ok {
+		t.Error("expected layout to fail with no available width")
+	}
+
+	narrowWidth := r.padding*2 + len(domains)
+	if _, _, _, ok := r.columnLayout(narrowWidth, 100, domains); ok {
+		t.Error("expected layout to fail when column width is too small")
+	}
+
+	if _, _, _, ok := r.columnLayout(1000, r.padding*2, domains); ok {
+		t.Error("expected layout to fail with insufficient height")
+	}
+
+	startYOffset, columnWidth, columnHeight, ok := r.columnLayout(1000, 600, domains)
+	if !ok {
+		t.Fatal("expected layout to succeed with ample space")
+	}
+	if startYOffset <= 0 || columnWidth <= 0 || columnHeight <= 0 {
+		t.Error("expected positive layout values")
+	}
+}

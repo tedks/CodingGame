@@ -12,7 +12,6 @@
 package systemtest
 
 import (
-	"os"
 	"testing"
 
 	"github.com/tedks/CodingGame/internal/input"
@@ -20,23 +19,9 @@ import (
 	"github.com/tedks/CodingGame/internal/ui"
 )
 
-// hasDisplay checks if a display is available for running graphical tests.
-func hasDisplay() bool {
-	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
-}
-
-// skipIfNoDisplay skips the test if no display is available.
-func skipIfNoDisplay(t *testing.T) {
-	if !hasDisplay() {
-		t.Skip("Skipping: no display available (set DISPLAY or WAYLAND_DISPLAY)")
-	}
-}
-
 // TestSystemTests is the single entry point for all system tests.
 // All tests run as subtests to avoid GLFW re-initialization issues.
 func TestSystemTests(t *testing.T) {
-	skipIfNoDisplay(t)
-
 	// Navigation tests
 	t.Run("Navigation", func(t *testing.T) {
 		t.Run("HKeyPansLeft", testNavigationHKeyPansLeft)
@@ -131,6 +116,7 @@ func TestSystemTests(t *testing.T) {
 		t.Run("DragHandle", testConversationPanelDragHandle)
 		t.Run("SubmitFlow", testConversationPanelSubmitFlow)
 		t.Run("HeightAnimation", testConversationPanelHeightAnimation)
+		t.Run("GameSceneDragUsesInputSource", testGameScenePromptPanelDragUsesInputSource)
 	})
 }
 

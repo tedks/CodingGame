@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+type fakeClock struct {
+	now time.Time
+}
+
+func (f *fakeClock) Now() time.Time {
+	return f.now
+}
+
+func (f *fakeClock) Advance(d time.Duration) {
+	f.now = f.now.Add(d)
+}
+
 func TestNew(t *testing.T) {
 	tile := New("/path/to/file.go", "file.go", false)
 
@@ -65,7 +77,8 @@ func TestFogStates(t *testing.T) {
 }
 
 func TestHighlight(t *testing.T) {
-	tile := New("/path/to/file.go", "file.go", false)
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	tile := newWithClock("/path/to/file.go", "file.go", false, clock)
 
 	// Should not be highlighted initially
 	if tile.IsHighlighted() {
@@ -79,7 +92,7 @@ func TestHighlight(t *testing.T) {
 	}
 
 	// Wait for highlight to expire
-	time.Sleep(150 * time.Millisecond)
+	clock.Advance(150 * time.Millisecond)
 	if tile.IsHighlighted() {
 		t.Error("expected highlight to expire after duration")
 	}

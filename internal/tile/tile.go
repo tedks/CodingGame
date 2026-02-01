@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+// Clock provides the current time, allowing tests to control time-dependent behavior.
+type Clock interface {
+	Now() time.Time
+}
+
+type realClock struct{}
+
+func (realClock) Now() time.Time { return time.Now() }
+
 // FogState represents the fog of war state for a tile
 type FogState int
 
@@ -35,14 +44,23 @@ type Tile struct {
 
 	// Animation state
 	highlightUntil time.Time // For temporary highlights on edits
+	clock          Clock
 }
 
 // New creates a new tile
 func New(path, relPath string, isDir bool) *Tile {
+	return newWithClock(path, relPath, isDir, realClock{})
+}
+
+func newWithClock(path, relPath string, isDir bool, clock Clock) *Tile {
 	name := filepath.Base(path)
 	ext := ""
 	if !isDir {
 		ext = filepath.Ext(name)
+	}
+
+	if clock == nil {
+		clock = realClock{}
 	}
 
 	return &Tile{
@@ -52,7 +70,15 @@ func New(path, relPath string, isDir bool) *Tile {
 		name:      name,
 		extension: ext,
 		fogState:  FogFull,
+		clock:     clock,
 	}
+}
+
+func (t *Tile) now() time.Time {
+	if t.clock == nil {
+		return time.Now()
+	}
+	return t.clock.Now()
 }
 
 // Path returns the absolute path
@@ -117,7 +143,7 @@ func (t *Tile) Reveal() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.fogState = FogRevealed
-	t.lastRevealed = time.Now()
+	t.lastRevealed = t.now()
 	t.revealCount++
 }
 
@@ -142,14 +168,14 @@ func (t *Tile) ResetFog() {
 func (t *Tile) Highlight(duration time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.highlightUntil = time.Now().Add(duration)
+	t.highlightUntil = t.now().Add(duration)
 }
 
 // IsHighlighted returns true if the tile should be highlighted
 func (t *Tile) IsHighlighted() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return time.Now().Before(t.highlightUntil)
+	return t.now().Before(t.highlightUntil)
 }
 
 // LastRevealed returns when the tile was last revealed

@@ -45,11 +45,13 @@ type EventHandler func(*Event)
 
 // Interceptor intercepts Claude Code tool calls via JSON output
 type Interceptor struct {
-	mu       sync.RWMutex
-	cmd      *exec.Cmd
-	handlers []EventHandler
-	running  bool
-	events   chan *Event
+	mu        sync.RWMutex
+	cmd       *exec.Cmd
+	handlers  []EventHandler
+	running   bool
+	events    chan *Event
+	closeOnce sync.Once
+	closed    bool
 }
 
 // New creates a new Claude interceptor
@@ -67,6 +69,28 @@ func (i *Interceptor) AddHandler(handler EventHandler) {
 	i.handlers = append(i.handlers, handler)
 }
 
+func (i *Interceptor) isClosed() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.closed
+}
+
+func (i *Interceptor) closeEvents() {
+	i.closeOnce.Do(func() {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+		i.closed = true
+		close(i.events)
+	})
+}
+
+func (i *Interceptor) emitEvent(event *Event) {
+	if event == nil || i.isClosed() {
+		return
+	}
+	i.events <- event
+}
+
 // Start begins intercepting Claude output
 // For now, this is a stub that will be connected to actual Claude subprocess
 func (i *Interceptor) Start() error {
@@ -74,6 +98,10 @@ func (i *Interceptor) Start() error {
 	if i.running {
 		i.mu.Unlock()
 		return fmt.Errorf("interceptor already running")
+	}
+	if i.closed {
+		i.mu.Unlock()
+		return fmt.Errorf("interceptor is closed")
 	}
 	i.running = true
 	i.mu.Unlock()
@@ -99,17 +127,20 @@ func (i *Interceptor) Start() error {
 // Stop stops the interceptor
 func (i *Interceptor) Stop() error {
 	i.mu.Lock()
-	defer i.mu.Unlock()
 
 	if !i.running {
+		i.mu.Unlock()
 		return nil
 	}
 
 	i.running = false
-	close(i.events)
+	cmd := i.cmd
+	i.mu.Unlock()
 
-	if i.cmd != nil && i.cmd.Process != nil {
-		return i.cmd.Process.Kill()
+	i.closeEvents()
+
+	if cmd != nil && cmd.Process != nil {
+		return cmd.Process.Kill()
 	}
 
 	return nil
@@ -145,7 +176,7 @@ func (i *Interceptor) parseOutput(reader io.Reader) {
 		// Determine event type and create event
 		event := i.parseEvent(data)
 		if event != nil {
-			i.events <- event
+			i.emitEvent(event)
 		}
 	}
 }
@@ -215,36 +246,36 @@ func containsAny(s string, substrs []string) bool {
 
 // SimulateFileRead simulates a file read event (for testing)
 func (i *Interceptor) SimulateFileRead(path string) {
-	i.events <- &Event{
+	i.emitEvent(&Event{
 		Type:      EventFileRead,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
 			"tool":      "Read",
 			"file_path": path,
 		},
-	}
+	})
 }
 
 // SimulateFileWrite simulates a file write event (for testing)
 func (i *Interceptor) SimulateFileWrite(path string) {
-	i.events <- &Event{
+	i.emitEvent(&Event{
 		Type:      EventFileWrite,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
 			"tool":      "Write",
 			"file_path": path,
 		},
-	}
+	})
 }
 
 // SimulateFileEdit simulates a file edit event (for testing)
 func (i *Interceptor) SimulateFileEdit(path string) {
-	i.events <- &Event{
+	i.emitEvent(&Event{
 		Type:      EventFileEdit,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
 			"tool":      "Edit",
 			"file_path": path,
 		},
-	}
+	})
 }

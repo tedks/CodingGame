@@ -4,6 +4,7 @@ go_library(
     name = "game",
     srcs = [
         "app.go",
+        "event_helpers.go",
         "game.go",
         "scene.go",
     ],

@@ -41,6 +41,17 @@ func TestGraphAddAndGet(t *testing.T) {
 	}
 }
 
+func TestGraphAddNil(t *testing.T) {
+	g := NewGraph()
+
+	if got := g.Add(nil); got != nil {
+		t.Error("Add(nil) should return nil")
+	}
+	if g.Count() != 0 {
+		t.Errorf("Count() after Add(nil) = %d, want 0", g.Count())
+	}
+}
+
 func TestGraphAddNew(t *testing.T) {
 	g := NewGraph()
 

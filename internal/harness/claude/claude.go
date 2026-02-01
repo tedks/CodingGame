@@ -57,6 +57,9 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.IsStopped() {
+		return fmt.Errorf("harness already stopped")
+	}
 	if c.IsRunning() {
 		return fmt.Errorf("harness already running")
 	}
@@ -124,6 +127,7 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 
 	// Create parser and start reading output
 	c.parser = NewParser(c.EventsWritable())
+	c.parser.SetClosedFunc(c.EventsClosed)
 	c.wg.Add(2)
 	go c.readOutput()
 	go c.readErrors()
@@ -309,6 +313,10 @@ func (c *ClaudeHarness) Stop() error {
 	defer c.mu.Unlock()
 
 	if !c.IsRunning() {
+		c.SetRunning(false)
+		c.closeOnce.Do(func() {
+			c.CloseEvents()
+		})
 		return nil
 	}
 

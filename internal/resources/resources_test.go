@@ -121,12 +121,49 @@ func TestFormatResourceText(t *testing.T) {
 	}
 }
 
+func TestClampRatio(t *testing.T) {
+	tests := []struct {
+		value    float32
+		expected float32
+	}{
+		{-0.25, 0},
+		{0, 0},
+		{0.4, 0.4},
+		{1, 1},
+		{1.1, 1},
+	}
+
+	for _, tc := range tests {
+		if got := clampRatio(tc.value); got != tc.expected {
+			t.Errorf("clampRatio(%v) = %v, want %v", tc.value, got, tc.expected)
+		}
+	}
+}
+
 func TestGetResourceNotFound(t *testing.T) {
 	tracker := New()
 
 	res := tracker.GetResource("NonExistent")
 	if res != nil {
 		t.Error("expected nil for non-existent resource")
+	}
+}
+
+func TestGetResourceReturnsCopy(t *testing.T) {
+	tracker := New()
+
+	res := tracker.GetResource("Context")
+	if res == nil {
+		t.Fatal("expected Context resource to exist")
+	}
+
+	res.Current = 999
+	resAgain := tracker.GetResource("Context")
+	if resAgain == nil {
+		t.Fatal("expected Context resource to exist")
+	}
+	if resAgain.Current == 999 {
+		t.Error("GetResource returned a reference instead of a copy")
 	}
 }
 
@@ -163,4 +200,17 @@ func TestConcurrentAccess(t *testing.T) {
 	<-done
 
 	// If we get here without deadlock or data race, test passes
+}
+
+func TestDrawWithNoResourcesDoesNotPanic(t *testing.T) {
+	tracker := New()
+	tracker.resources = nil
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Draw panicked with no resources: %v", r)
+		}
+	}()
+
+	tracker.Draw(nil, 0, 0, 100, 20)
 }

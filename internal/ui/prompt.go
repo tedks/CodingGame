@@ -42,22 +42,22 @@ type Message struct {
 
 // Panel size constants
 const (
-	MinPanelHeight     = 60  // Minimized height (just input bar)
-	MaxPanelHeight     = 500 // Maximum expanded height
-	LineHeight         = 16  // Height per line of text
-	InputAreaHeight    = 50  // Height of the input area at bottom
-	MessagePadding     = 8   // Padding around messages
-	PanelGrowthPerMsg  = 40  // How much to grow per message (approximate)
-	AnimationSpeed     = 8   // Pixels per frame for smooth animation
-	DragHandleHeight   = 8   // Height of the drag handle area at top
+	MinPanelHeight    = 60  // Minimized height (just input bar)
+	MaxPanelHeight    = 500 // Maximum expanded height
+	LineHeight        = 16  // Height per line of text
+	InputAreaHeight   = 50  // Height of the input area at bottom
+	MessagePadding    = 8   // Padding around messages
+	PanelGrowthPerMsg = 40  // How much to grow per message (approximate)
+	AnimationSpeed    = 8   // Pixels per frame for smooth animation
+	DragHandleHeight  = 8   // Height of the drag handle area at top
 )
 
 // PromptPanel provides a conversation interface with Claude.
 type PromptPanel struct {
 	// Position and size
-	X, Y          int
-	Width         int
-	screenHeight  int // Full screen height for calculating position
+	X, Y         int
+	Width        int
+	screenHeight int // Full screen height for calculating position
 
 	// Size state
 	minimized       bool

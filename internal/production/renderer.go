@@ -6,7 +6,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 // Renderer draws the production environment visualization.
@@ -20,12 +20,10 @@ func NewRenderer() *Renderer {
 
 // Layout constants
 const (
-	prodPadding      = 20
 	prodCityWidth    = 180
 	prodCityHeight   = 100
 	prodCitySpacing  = 30
 	prodCitiesPerRow = 4
-	prodHeaderHeight = 60
 )
 
 // Color scheme for health statuses
@@ -43,22 +41,26 @@ var healthColors = map[HealthStatus]color.RGBA{
 //   - x, y: the top-left position to start drawing
 //   - width, height: the available drawing area
 func (r *Renderer) Draw(screen *ebiten.Image, services []*Service, x, y, width, height int) {
+	headerLayout := ui.DefaultHeaderLayout()
+
 	// Draw header with summary
-	r.drawHeader(screen, services, x, y, width)
+	r.drawHeader(screen, services, x, y, width, headerLayout)
 
 	// If no services, show empty state
 	if len(services) == 0 {
-		r.drawEmptyState(screen, x, y+prodHeaderHeight, width, height-prodHeaderHeight)
+		ui.DrawEmptyState(screen, "No production services configured",
+			"Add a .production.json file to monitor services",
+			x, y+headerLayout.Height, width, height-headerLayout.Height)
 		return
 	}
 
 	// Draw services as cities
-	startY := y + prodHeaderHeight + prodPadding
+	startY := y + headerLayout.Height + headerLayout.Padding
 	for i, svc := range services {
 		row := i / prodCitiesPerRow
 		col := i % prodCitiesPerRow
 
-		cityX := x + prodPadding + col*(prodCityWidth+prodCitySpacing)
+		cityX := x + headerLayout.Padding + col*(prodCityWidth+prodCitySpacing)
 		cityY := startY + row*(prodCityHeight+prodCitySpacing)
 
 		// Check if we're still in bounds
@@ -70,14 +72,14 @@ func (r *Renderer) Draw(screen *ebiten.Image, services []*Service, x, y, width, 
 	}
 }
 
-// drawHeader renders the summary header with weather overview.
-func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, width int) {
-	// Draw background
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(prodHeaderHeight),
-		color.RGBA{R: 0x1A, G: 0x1A, B: 0x2E, A: 0xFF}, false)
+func weatherSummaryX(x, width int) (int, bool) {
+	layout := ui.DefaultHeaderLayout()
+	return ui.RightAlignedSummaryX(x, width, 300, layout.Padding)
+}
 
-	// Draw title
-	ebitenutil.DebugPrintAt(screen, "PRODUCTION REALM", x+prodPadding, y+10)
+// drawHeader renders the summary header with weather overview.
+func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, width int, layout ui.HeaderLayout) {
+	ui.DrawHeader(screen, "PRODUCTION REALM", x, y, width, layout)
 
 	// Calculate health summary
 	healthCounts := make(map[HealthStatus]int)
@@ -88,36 +90,22 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, w
 	}
 
 	// Draw health summary
-	summaryY := y + 30
-	summaryX := x + prodPadding
+	summaryY := y + layout.SummaryOffsetY
 	healthy := healthCounts[HealthHealthy]
 	degraded := healthCounts[HealthDegraded]
 	unhealthy := healthCounts[HealthUnhealthy]
 
 	summary := fmt.Sprintf("Services: %d | Healthy: %d | Degraded: %d | Unhealthy: %d",
 		len(services), healthy, degraded, unhealthy)
-	ebitenutil.DebugPrintAt(screen, summary, summaryX, summaryY)
+	ui.DrawHeaderSummary(screen, summary, x, y, layout)
 
 	// Draw weather summary
-	weatherX := x + width - 300
-	weatherSummary := fmt.Sprintf("Clear: %d | Cloudy: %d | Storm: %d",
-		weatherCounts[WeatherClear], weatherCounts[WeatherCloudy], weatherCounts[WeatherStorm])
-	ebitenutil.DebugPrintAt(screen, weatherSummary, weatherX, summaryY)
-}
-
-// drawEmptyState renders a message when no services are configured.
-func (r *Renderer) drawEmptyState(screen *ebiten.Image, x, y, width, height int) {
-	msg := "No production services configured"
-	hint := "Add a .production.json file to monitor services"
-
-	// Center the messages
-	msgX := x + width/2 - len(msg)*3
-	msgY := y + height/2 - 20
-	hintX := x + width/2 - len(hint)*3
-	hintY := y + height/2
-
-	ebitenutil.DebugPrintAt(screen, msg, msgX, msgY)
-	ebitenutil.DebugPrintAt(screen, hint, hintX, hintY)
+	weatherX, ok := weatherSummaryX(x, width)
+	if ok {
+		weatherSummary := fmt.Sprintf("Clear: %d | Cloudy: %d | Storm: %d",
+			weatherCounts[WeatherClear], weatherCounts[WeatherCloudy], weatherCounts[WeatherStorm])
+		ebitenutil.DebugPrintAt(screen, weatherSummary, weatherX, summaryY)
+	}
 }
 
 // drawCity renders a single service as a "city" card.
@@ -126,13 +114,7 @@ func (r *Renderer) drawCity(screen *ebiten.Image, svc *Service, x, y int) {
 	healthColor := healthColors[svc.Health]
 
 	// Draw city background
-	bgColor := color.RGBA{R: 0x2A, G: 0x2A, B: 0x3E, A: 0xFF}
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(prodCityWidth), float32(prodCityHeight),
-		bgColor, false)
-
-	// Draw health indicator border
-	vector.StrokeRect(screen, float32(x), float32(y), float32(prodCityWidth), float32(prodCityHeight),
-		2, healthColor, false)
+	ui.DrawCard(screen, x, y, prodCityWidth, prodCityHeight, ui.DefaultCardStyle(healthColor))
 
 	// Draw service name
 	nameY := y + 8

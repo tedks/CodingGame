@@ -2,6 +2,8 @@ package multiagent
 
 import (
 	"testing"
+
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 func TestNewRenderer(t *testing.T) {
@@ -44,8 +46,8 @@ func TestLayoutConstants(t *testing.T) {
 	if agentCardsPerRow <= 0 {
 		t.Error("agentCardsPerRow should be positive")
 	}
-	if agentHeaderHeight <= 0 {
-		t.Error("agentHeaderHeight should be positive")
+	if ui.DefaultHeaderLayout().Height <= 0 {
+		t.Error("default header height should be positive")
 	}
 }
 
@@ -84,5 +86,41 @@ func TestGetUsageColor(t *testing.T) {
 		if c.A == 0 {
 			t.Errorf("getUsageColor(%f) returned transparent color", tc.usage)
 		}
+	}
+}
+
+func TestClampUnitInterval(t *testing.T) {
+	tests := []struct {
+		value    float64
+		expected float64
+	}{
+		{-0.5, 0},
+		{0, 0},
+		{0.35, 0.35},
+		{1, 1},
+		{1.25, 1},
+	}
+
+	for _, tc := range tests {
+		if got := clampUnitInterval(tc.value); got != tc.expected {
+			t.Errorf("clampUnitInterval(%v) = %v, want %v", tc.value, got, tc.expected)
+		}
+	}
+}
+
+func TestTokenSummaryXGuard(t *testing.T) {
+	x := 5
+
+	if _, ok := tokenSummaryX(x, 100); ok {
+		t.Error("expected guard to skip token summary for narrow width")
+	}
+
+	want := x + 300 - 200
+	got, ok := tokenSummaryX(x, 300)
+	if !ok {
+		t.Fatal("expected token summary to render for wide width")
+	}
+	if got != want {
+		t.Errorf("tokenSummaryX = %d, want %d", got, want)
 	}
 }

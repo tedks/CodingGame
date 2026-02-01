@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -73,9 +72,11 @@ type GameScene struct {
 	currentView input.ViewNumber
 
 	// Callbacks
-	onPromptSubmit func(text string) // Called when a prompt is submitted
+	onPromptSubmit   func(text string)          // Called when a prompt is submitted
+	harnessEventHook func(event *harness.Event) // Optional test hook after event processing
 
 	// Input state
+	inputSource     input.InputSource
 	lastMouseX      int
 	lastMouseY      int
 	wasMousePressed bool
@@ -166,6 +167,7 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 		multiagentOrchestrator: maOrchestrator,
 		multiagentRenderer:     maRenderer,
 		currentView:            input.ViewMap,
+		inputSource:            input.DefaultSource,
 	}
 
 	// Wire up input handler callbacks
@@ -180,6 +182,21 @@ func NewGameScene(projectPath string, width, height int) (*GameScene, error) {
 	}
 
 	return gs, nil
+}
+
+// SetInputSource sets the input source for testing.
+// Pass nil to reset to the default Ebitengine source.
+func (gs *GameScene) SetInputSource(source input.InputSource) {
+	if source == nil {
+		source = input.DefaultSource
+	}
+	gs.inputSource = source
+	if gs.inputHandler != nil {
+		gs.inputHandler.SetInputSource(source)
+	}
+	if gs.mapView != nil {
+		gs.mapView.SetInputSource(source)
+	}
 }
 
 // setupInputCallbacks wires up the input handler callbacks to the game scene.
@@ -259,11 +276,14 @@ func (gs *GameScene) handlePromptCancel() {
 // SetConfig sets the configuration from the start screen.
 // If a harness is specified, it will be started.
 func (gs *GameScene) SetConfig(config ui.GameConfig) {
+	gs.stopMainHarness()
 	gs.config = config
 
 	// Start the selected harness if one is specified
 	if config.Harness != "" && gs.registry.IsRegistered(config.Harness) {
 		gs.startHarness(config)
+	} else {
+		gs.onPromptSubmit = nil
 	}
 }
 
@@ -320,6 +340,27 @@ func (gs *GameScene) startHarness(config ui.GameConfig) {
 	go gs.processHarnessEvents()
 }
 
+// stopMainHarness stops the current harness and waits for its event processing to finish.
+func (gs *GameScene) stopMainHarness() {
+	if gs.mainHarness != nil {
+		if err := gs.mainHarness.Stop(); err != nil {
+			// Log but don't fail on harness stop error
+			_ = err
+		}
+	}
+	if gs.harnessStop != nil {
+		gs.harnessStop()
+	}
+
+	// Wait for event processing goroutine to complete
+	gs.harnessWg.Wait()
+
+	gs.mainHarness = nil
+	gs.harnessCtx = nil
+	gs.harnessStop = nil
+	gs.onPromptSubmit = nil
+}
+
 // processHarnessEvents reads events from the main harness and processes them.
 func (gs *GameScene) processHarnessEvents() {
 	defer gs.harnessWg.Done()
@@ -338,21 +379,11 @@ func (gs *GameScene) handleHarnessEvent(event *harness.Event) {
 	switch event.Type {
 	case harness.EventFileRead:
 		// Reveal fog for files that the agent reads
-		path := event.FilePath()
-		if path != "" {
-			absPath := gs.resolveFilePath(path)
-			gs.mapView.RevealTile(absPath)
-		}
+		revealFile(gs.mapView, gs.projectPath, event.FilePath())
 
 	case harness.EventFileWrite, harness.EventFileEdit:
 		// Highlight files that the agent writes/edits
-		path := event.FilePath()
-		if path != "" {
-			absPath := gs.resolveFilePath(path)
-			gs.mapView.RevealTile(absPath)
-			// Trigger advisors that watch this file
-			gs.triggerAdvisorsForFile(path)
-		}
+		revealAndTrigger(gs.mapView, gs.advisorPool, gs.projectPath, event.FilePath())
 
 	case harness.EventBuildRun:
 		// Update build status in resource tracker
@@ -376,6 +407,10 @@ func (gs *GameScene) handleHarnessEvent(event *harness.Event) {
 		// Reset prompt panel to idle when turn completes
 		gs.promptPanel.SetState(ui.PromptStateIdle)
 	}
+
+	if gs.harnessEventHook != nil && event != nil {
+		gs.harnessEventHook(event)
+	}
 }
 
 // handleHarnessAdvisorEvent processes advisor-related events from the harness.
@@ -385,71 +420,24 @@ func (gs *GameScene) handleHarnessAdvisorEvent(event *harness.Event) {
 	if advisorID == "" {
 		advisorID, _ = event.Raw["advisor_id"].(string)
 	}
-	if advisorID == "" {
-		return
-	}
-
-	adv := gs.advisorPool.Get(advisorID)
-	if adv == nil {
-		return
-	}
-
-	// Check status in raw data
-	if status, ok := event.Raw["status"].(string); ok {
-		switch status {
-		case "started":
-			adv.StartAnalysis()
-		case "completed":
-			duration, _ := event.Raw["duration_ms"].(float64)
-			tokensIn, _ := event.Raw["tokens_in"].(float64)
-			tokensOut, _ := event.Raw["tokens_out"].(float64)
-			adv.CompleteAnalysis(
-				durationFromMs(duration),
-				int64(tokensIn),
-				int64(tokensOut),
-				nil,
-			)
-		case "error":
-			errMsg, _ := event.Raw["error"].(string)
-			adv.CompleteAnalysis(0, 0, 0, fmt.Errorf("%s", errMsg))
-		}
-	}
-
-	// Check for insights in the event
-	if insightsData, ok := event.Raw["insights"].([]interface{}); ok {
-		for _, insightData := range insightsData {
-			if insightMap, ok := insightData.(map[string]interface{}); ok {
-				insight := gs.parseInsight(advisorID, insightMap)
-				if insight != nil {
-					adv.AddInsight(insight)
-				}
-			}
-		}
-	}
-}
-
-// resolveFilePath resolves a file path relative to the project path.
-func (gs *GameScene) resolveFilePath(path string) string {
-	if filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(gs.projectPath, path)
+	processAdvisorEvent(gs.advisorPool, advisorID, event.Raw)
 }
 
 // handlePromptPanelDrag handles mouse drag for resizing the prompt panel.
 // Returns true if the prompt panel consumed the input.
 func (gs *GameScene) handlePromptPanelDrag() bool {
-	x, y := ebiten.CursorPosition()
+	inputSource := gs.inputSource
+	x, y := inputSource.CursorPosition()
 	consumed := false
 
 	// Handle mouse wheel scrolling
-	_, wheelY := ebiten.Wheel()
+	_, wheelY := inputSource.Wheel()
 	if wheelY != 0 && gs.promptPanel.HandleScroll(x, y, 0, wheelY) {
 		consumed = true
 	}
 
 	// Check for mouse button state
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+	if inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 		if gs.promptPanel.IsDragging() {
 			// Continue dragging
 			gs.promptPanel.UpdateDrag(y)
@@ -469,7 +457,7 @@ func (gs *GameScene) handlePromptPanelDrag() bool {
 		}
 
 		// Handle click on mouse release (detect click by checking if we just released)
-		if gs.wasMousePressed && !ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		if gs.wasMousePressed && !inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
 			if gs.promptPanel.HandleClick(x, y) {
 				consumed = true
 			}
@@ -477,13 +465,21 @@ func (gs *GameScene) handlePromptPanelDrag() bool {
 	}
 
 	// Track mouse pressed state for click detection
-	gs.wasMousePressed = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	gs.wasMousePressed = inputSource.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
 	// Update last mouse position
 	gs.lastMouseX = x
 	gs.lastMouseY = y
 
 	return consumed
+}
+
+// PromptPanelHeight returns the current prompt panel height.
+func (gs *GameScene) PromptPanelHeight() int {
+	if gs.promptPanel == nil {
+		return 0
+	}
+	return gs.promptPanel.Height()
 }
 
 // Update implements ui.Scene.
@@ -651,19 +647,7 @@ func (gs *GameScene) Close() error {
 		gs.productionWatcher.Stop()
 	}
 
-	// Stop the main harness if running
-	if gs.mainHarness != nil {
-		if err := gs.mainHarness.Stop(); err != nil {
-			// Log but don't fail on harness stop error
-			_ = err
-		}
-	}
-	if gs.harnessStop != nil {
-		gs.harnessStop()
-	}
-
-	// Wait for event processing goroutine to complete
-	gs.harnessWg.Wait()
+	gs.stopMainHarness()
 
 	// Stop legacy interceptor
 	if gs.interceptor != nil {
@@ -674,144 +658,7 @@ func (gs *GameScene) Close() error {
 
 // handleClaudeEvent processes events from the Claude interceptor (legacy).
 func (gs *GameScene) handleClaudeEvent(event *claude.Event) {
-	switch event.Type {
-	case claude.EventFileRead:
-		// Reveal fog for files that Claude reads
-		if path, ok := event.Data["file_path"].(string); ok {
-			absPath := gs.resolveFilePath(path)
-			gs.mapView.RevealTile(absPath)
-		}
-
-	case claude.EventFileWrite, claude.EventFileEdit:
-		// Highlight files that Claude writes/edits
-		if path, ok := event.Data["file_path"].(string); ok {
-			absPath := gs.resolveFilePath(path)
-			// Reveal and highlight the tile
-			gs.mapView.RevealTile(absPath)
-			// Trigger advisors that watch this file (Phase 3)
-			gs.triggerAdvisorsForFile(path)
-		}
-
-	case claude.EventBuildRun:
-		// Update build status in resource tracker
-		// TODO: Extract build results and update resources
-
-	case claude.EventTestRun:
-		// Update test results
-		// TODO: Extract test results and update resources
-
-	case claude.EventSubagentRun:
-		// Handle advisor/subagent execution (Phase 3)
-		gs.handleAdvisorEvent(event)
-	}
-}
-
-// handleAdvisorEvent processes advisor-related events.
-func (gs *GameScene) handleAdvisorEvent(event *claude.Event) {
-	// Extract advisor ID from event data if present
-	advisorID, _ := event.Data["advisor_id"].(string)
-	if advisorID == "" {
-		return
-	}
-
-	adv := gs.advisorPool.Get(advisorID)
-	if adv == nil {
-		return
-	}
-
-	// Check if this is a start or completion event
-	if status, ok := event.Data["status"].(string); ok {
-		switch status {
-		case "started":
-			adv.StartAnalysis()
-		case "completed":
-			duration, _ := event.Data["duration_ms"].(float64)
-			tokensIn, _ := event.Data["tokens_in"].(float64)
-			tokensOut, _ := event.Data["tokens_out"].(float64)
-			adv.CompleteAnalysis(
-				durationFromMs(duration),
-				int64(tokensIn),
-				int64(tokensOut),
-				nil,
-			)
-		case "error":
-			errMsg, _ := event.Data["error"].(string)
-			adv.CompleteAnalysis(0, 0, 0, fmt.Errorf("%s", errMsg))
-		}
-	}
-
-	// Check for insights in the event
-	if insightsData, ok := event.Data["insights"].([]interface{}); ok {
-		for _, insightData := range insightsData {
-			if insightMap, ok := insightData.(map[string]interface{}); ok {
-				insight := gs.parseInsight(advisorID, insightMap)
-				if insight != nil {
-					adv.AddInsight(insight)
-				}
-			}
-		}
-	}
-}
-
-// parseInsight parses insight data from an event.
-func (gs *GameScene) parseInsight(advisorID string, data map[string]interface{}) *advisor.Insight {
-	title, _ := data["title"].(string)
-	description, _ := data["description"].(string)
-	if title == "" {
-		return nil
-	}
-
-	// Map severity
-	severityStr, _ := data["severity"].(string)
-	severity := advisor.SeverityInfo
-	switch severityStr {
-	case "warning":
-		severity = advisor.SeverityWarning
-	case "critical":
-		severity = advisor.SeverityCritical
-	}
-
-	// Map category
-	categoryStr, _ := data["category"].(string)
-	category := advisor.CategoryGeneral
-	switch categoryStr {
-	case "security":
-		category = advisor.CategorySecurity
-	case "performance":
-		category = advisor.CategoryPerformance
-	case "refactoring":
-		category = advisor.CategoryRefactoring
-	case "testing":
-		category = advisor.CategoryTesting
-	}
-
-	insight := advisor.NewInsight(advisorID, title, description, severity, category)
-
-	// Add location if present
-	if filePath, ok := data["file_path"].(string); ok {
-		line, _ := data["line"].(float64)
-		column, _ := data["column"].(float64)
-		insight.WithLocation(filePath, int(line), int(column))
-	}
-
-	// Add suggestion if present
-	if suggestion, ok := data["suggestion"].(string); ok {
-		codeBefore, _ := data["code_before"].(string)
-		codeAfter, _ := data["code_after"].(string)
-		insight.WithSuggestion(suggestion, codeBefore, codeAfter)
-	}
-
-	return insight
-}
-
-// triggerAdvisorsForFile triggers advisors that should run when a file changes.
-func (gs *GameScene) triggerAdvisorsForFile(filePath string) {
-	triggered := gs.advisorPool.TriggerOnFileChange(filePath)
-	for _, adv := range triggered {
-		// In a real implementation, this would spawn the advisor subagent
-		// For now, we just mark that the advisor should analyze this file
-		_ = adv // TODO: Implement actual advisor execution
-	}
+	processClaudeEvent(event, gs.projectPath, gs.mapView, gs.advisorPool)
 }
 
 // Harness returns the main harness instance, if one is running.

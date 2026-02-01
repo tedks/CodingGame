@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "adapter.go",
         "breakpoint.go",
+        "clone.go",
         "dataflow.go",
         "debug.go",
         "event.go",

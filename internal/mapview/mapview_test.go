@@ -692,3 +692,19 @@ func TestAbs(t *testing.T) {
 		}
 	}
 }
+
+func TestDrawDataflowViewTilesPerRowZeroGuard(t *testing.T) {
+	m := &MapView{
+		width:     0,
+		height:    100,
+		zoomLevel: ZoomOverview,
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("drawDataflowView panicked: %v", r)
+		}
+	}()
+
+	m.drawDataflowView(nil, 0, 0)
+}

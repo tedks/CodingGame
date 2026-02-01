@@ -476,6 +476,32 @@ func TestAdvisor_AcceptanceRate(t *testing.T) {
 	}
 }
 
+func TestAdvisorMetrics_ZeroValues(t *testing.T) {
+	metrics := AdvisorMetrics{}
+
+	if metrics.TotalRuns != 0 {
+		t.Errorf("TotalRuns zero value = %d, want 0", metrics.TotalRuns)
+	}
+	if metrics.TotalTokensIn != 0 {
+		t.Errorf("TotalTokensIn zero value = %d, want 0", metrics.TotalTokensIn)
+	}
+	if metrics.TotalTokensOut != 0 {
+		t.Errorf("TotalTokensOut zero value = %d, want 0", metrics.TotalTokensOut)
+	}
+	if metrics.MinDuration != 0 {
+		t.Errorf("MinDuration zero value = %v, want 0", metrics.MinDuration)
+	}
+	if metrics.MaxDuration != 0 {
+		t.Errorf("MaxDuration zero value = %v, want 0", metrics.MaxDuration)
+	}
+	if metrics.AvgDuration != 0 {
+		t.Errorf("AvgDuration zero value = %v, want 0", metrics.AvgDuration)
+	}
+	if metrics.LastDuration != 0 {
+		t.Errorf("LastDuration zero value = %v, want 0", metrics.LastDuration)
+	}
+}
+
 func TestAdvisor_Metrics_MultipleRuns(t *testing.T) {
 	a := New(Config{ID: "test", Name: "Test", SystemPrompt: "test", Trigger: TriggerManual}, 0, 0)
 

@@ -89,6 +89,17 @@ func TestGameScene_HarnessEventsProcessed(t *testing.T) {
 	}
 	defer gs.Close()
 
+	eventProcessed := make(chan *harness.Event, 1)
+	gs.harnessEventHook = func(event *harness.Event) {
+		if event == nil || event.Type != harness.EventFileRead {
+			return
+		}
+		select {
+		case eventProcessed <- event:
+		default:
+		}
+	}
+
 	mock := harness.NewMockHarness()
 	registry := harness.NewRegistry()
 	registry.Register("mock", func() harness.Harness { return mock })
@@ -107,8 +118,11 @@ func TestGameScene_HarnessEventsProcessed(t *testing.T) {
 		WithSource("mock").
 		Build())
 
-	// Give the event processor time to handle it
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-eventProcessed:
+	case <-time.After(1 * time.Second):
+		t.Fatal("Timed out waiting for harness event to be processed")
+	}
 
 	// The event should have been processed (we can't easily verify the effect
 	// without exposing more internal state, but at least we verify no panics)

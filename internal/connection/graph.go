@@ -24,7 +24,6 @@ type Graph struct {
 
 	// Cached analysis results
 	circularPaths [][]string // Detected circular dependency chains
-	analysisValid bool       // Whether cached analysis is current
 }
 
 // NewGraph creates an empty dependency graph.
@@ -43,6 +42,10 @@ func NewGraph() *Graph {
 //
 // Returns the connection (existing or new).
 func (g *Graph) Add(c *Connection) *Connection {
+	if c == nil {
+		return nil
+	}
+
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -54,7 +57,6 @@ func (g *Graph) Add(c *Connection) *Connection {
 	g.connections[id] = c
 	g.byFrom[c.from] = append(g.byFrom[c.from], c)
 	g.byTo[c.to] = append(g.byTo[c.to], c)
-	g.analysisValid = false
 
 	return c
 }
@@ -93,7 +95,6 @@ func (g *Graph) Remove(id string) bool {
 	delete(g.connections, id)
 	g.removeFromIndex(g.byFrom, c.from, c)
 	g.removeFromIndex(g.byTo, c.to, c)
-	g.analysisValid = false
 
 	return true
 }
@@ -126,7 +127,6 @@ func (g *Graph) Clear() {
 	g.byFrom = make(map[string][]*Connection)
 	g.byTo = make(map[string][]*Connection)
 	g.circularPaths = nil
-	g.analysisValid = false
 }
 
 // Count returns the number of connections in the graph.
@@ -254,7 +254,6 @@ func (g *Graph) DetectCircular() [][]string {
 	}
 
 	g.circularPaths = circularPaths
-	g.analysisValid = true
 	return circularPaths
 }
 

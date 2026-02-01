@@ -72,10 +72,14 @@ type HarnessFactory func() Harness
 
 // BaseHarness provides common functionality for harness implementations.
 //
-// # Thread Safety
+// # Concurrency
 //
 // BaseHarness is designed for concurrent use with the following guarantees:
 //
+//   - mu protects: version, running, stopped, closed.
+//   - name is immutable after construction (NewBaseHarness).
+//   - events is created by NewBaseHarness and closed by CloseEvents.
+//   - closeOnce enforces a single close of events.
 //   - IsRunning() and SetRunning() are protected by a mutex and safe to call
 //     from multiple goroutines.
 //   - Events() returns a receive-only channel that can be read by one consumer.
@@ -84,8 +88,8 @@ type HarnessFactory func() Harness
 //   - EventsWritable() returns a send-only channel. Multiple goroutines may
 //     send events concurrently, but implementers must ensure the channel is
 //     not closed while sends are in progress.
-//   - CloseEvents() must be called exactly once, after all senders have stopped.
-//     Use sync.Once in implementations to prevent double-close panics.
+//   - CloseEvents() should be called after all senders have stopped. It is
+//     safe to call more than once.
 //
 // # Event Ordering
 //
@@ -103,11 +107,24 @@ type HarnessFactory func() Harness
 //
 // Once stopped, a BaseHarness cannot be restarted. Create a new instance instead.
 type BaseHarness struct {
-	mu      sync.RWMutex
-	name    string
-	version string
-	running bool
-	events  chan Event
+	mu        sync.RWMutex
+	name      string
+	version   string
+	running   bool
+	stopped   bool
+	events    chan Event
+	closeOnce sync.Once
+	closed    bool
+}
+
+// BaseHarnessSnapshot is an immutable, point-in-time view of BaseHarness state.
+// Modifying the snapshot does not affect the underlying harness.
+type BaseHarnessSnapshot struct {
+	Name         string
+	Version      string
+	Running      bool
+	Stopped      bool
+	EventsClosed bool
 }
 
 // NewBaseHarness creates a new base harness with the given name
@@ -125,11 +142,28 @@ func (b *BaseHarness) Name() string {
 
 // Version returns the harness version
 func (b *BaseHarness) Version() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.version
+}
+
+// Snapshot returns an immutable, point-in-time view of the harness state.
+func (b *BaseHarness) Snapshot() BaseHarnessSnapshot {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return BaseHarnessSnapshot{
+		Name:         b.name,
+		Version:      b.version,
+		Running:      b.running,
+		Stopped:      b.stopped,
+		EventsClosed: b.closed,
+	}
 }
 
 // SetVersion sets the harness version
 func (b *BaseHarness) SetVersion(version string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.version = version
 }
 
@@ -140,11 +174,28 @@ func (b *BaseHarness) IsRunning() bool {
 	return b.running
 }
 
-// SetRunning sets the running state
+// IsStopped returns whether the harness has been stopped.
+// Once stopped, a harness cannot be restarted.
+func (b *BaseHarness) IsStopped() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.stopped
+}
+
+// SetRunning sets the running state.
+// Setting running to false marks the harness as stopped.
 func (b *BaseHarness) SetRunning(running bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.running = running
+	if running {
+		if b.stopped {
+			return
+		}
+		b.running = true
+		return
+	}
+	b.running = false
+	b.stopped = true
 }
 
 // Events returns the events channel
@@ -157,7 +208,19 @@ func (b *BaseHarness) EventsWritable() chan<- Event {
 	return b.events
 }
 
+// EventsClosed reports whether the events channel has been closed.
+func (b *BaseHarness) EventsClosed() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.closed
+}
+
 // CloseEvents closes the events channel
 func (b *BaseHarness) CloseEvents() {
-	close(b.events)
+	b.closeOnce.Do(func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.closed = true
+		close(b.events)
+	})
 }

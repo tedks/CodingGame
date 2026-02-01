@@ -29,8 +29,7 @@ type Renderer struct {
 	circularColor    color.RGBA
 
 	// Animation state
-	startTime  time.Time
-	frameCount int64 // Frame counter to avoid floating-point precision issues
+	startTime time.Time
 
 	// Rendering parameters
 	minWidth    float32 // Minimum belt width

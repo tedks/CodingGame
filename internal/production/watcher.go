@@ -18,6 +18,25 @@ import (
 // be registered before starting the watcher to avoid potential races where a discoverer
 // is added mid-poll. This is by design - registering discoverers at startup is the
 // expected usage pattern.
+//
+// # Concurrency
+//
+// mu protects: registry, pollInterval, running, stopCh, newTicker.
+// fileTimesMu protects: fileTimes.
+//
+// Goroutines:
+// - poll: started by Start, exits when stopCh is closed.
+//
+// Channel: stopCh (chan struct{})
+// - Created by: Start
+// - Closed by: Stop
+// - Read by: poll
+//
+// # State machine
+//
+// Idle -> Running -> Stopped
+// Start is idempotent; Stop is idempotent. A watcher may be restarted after Stop,
+// which creates a new stopCh and poll goroutine.
 type Watcher struct {
 	mu sync.Mutex
 
@@ -26,9 +45,36 @@ type Watcher struct {
 	running      bool
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
+	newTicker    func(time.Duration) ticker
 
 	// File modification times for change detection
-	fileTimes map[string]time.Time
+	fileTimesMu sync.Mutex
+	fileTimes   map[string]time.Time
+}
+
+// WatcherSnapshot is an immutable, point-in-time view of watcher state.
+// Modifying the snapshot does not affect the underlying watcher.
+type WatcherSnapshot struct {
+	Running      bool
+	PollInterval time.Duration
+	TrackedPaths int
+}
+
+type ticker interface {
+	Channel() <-chan time.Time
+	Stop()
+}
+
+type realTicker struct {
+	*time.Ticker
+}
+
+func (t realTicker) Channel() <-chan time.Time {
+	return t.Ticker.C
+}
+
+func newRealTicker(interval time.Duration) ticker {
+	return realTicker{Ticker: time.NewTicker(interval)}
 }
 
 // NewWatcher creates a new watcher for the given registry.
@@ -37,7 +83,19 @@ func NewWatcher(registry *Registry) *Watcher {
 		registry:     registry,
 		pollInterval: 5 * time.Second,
 		fileTimes:    make(map[string]time.Time),
+		newTicker:    newRealTicker,
 	}
+}
+
+// SetTickerFactory configures the ticker creation function (for testing).
+// Changes take effect on the next Start() call; do not call while running.
+func (w *Watcher) SetTickerFactory(factory func(time.Duration) ticker) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.running {
+		return
+	}
+	w.newTicker = factory
 }
 
 // SetPollInterval configures the polling interval.
@@ -57,6 +115,11 @@ func (w *Watcher) Start() error {
 		w.mu.Unlock()
 		return nil // Already running
 	}
+	if w.newTicker == nil {
+		w.newTicker = newRealTicker
+	}
+	interval := w.pollInterval
+	newTicker := w.newTicker
 	w.running = true
 	w.stopCh = make(chan struct{})
 	w.mu.Unlock()
@@ -66,7 +129,7 @@ func (w *Watcher) Start() error {
 
 	// Start polling goroutine
 	w.wg.Add(1)
-	go w.poll()
+	go w.poll(interval, newTicker)
 
 	return nil
 }
@@ -93,22 +156,36 @@ func (w *Watcher) IsRunning() bool {
 	return w.running
 }
 
-// poll is the main polling loop.
-func (w *Watcher) poll() {
-	defer w.wg.Done()
-
+// Snapshot returns an immutable, point-in-time view of watcher state.
+func (w *Watcher) Snapshot() WatcherSnapshot {
 	w.mu.Lock()
-	interval := w.pollInterval
+	running := w.running
+	pollInterval := w.pollInterval
 	w.mu.Unlock()
 
-	ticker := time.NewTicker(interval)
+	w.fileTimesMu.Lock()
+	tracked := len(w.fileTimes)
+	w.fileTimesMu.Unlock()
+
+	return WatcherSnapshot{
+		Running:      running,
+		PollInterval: pollInterval,
+		TrackedPaths: tracked,
+	}
+}
+
+// poll is the main polling loop.
+func (w *Watcher) poll(interval time.Duration, newTicker func(time.Duration) ticker) {
+	defer w.wg.Done()
+
+	ticker := newTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-w.stopCh:
 			return
-		case <-ticker.C:
+		case <-ticker.Channel():
 			if w.checkForChanges() {
 				w.registry.Refresh()
 			}
@@ -123,10 +200,15 @@ func (w *Watcher) updateFileTimes() {
 		info, err := os.Stat(path)
 		if err != nil {
 			// File doesn't exist or can't be accessed
+			w.fileTimesMu.Lock()
 			delete(w.fileTimes, path)
+			w.fileTimesMu.Unlock()
 			continue
 		}
-		w.fileTimes[path] = info.ModTime()
+		modTime := info.ModTime()
+		w.fileTimesMu.Lock()
+		w.fileTimes[path] = modTime
+		w.fileTimesMu.Unlock()
 	}
 }
 
@@ -143,25 +225,30 @@ func (w *Watcher) checkForChanges() bool {
 	}
 
 	// Clean up paths no longer being watched (prevents memory leak)
+	w.fileTimesMu.Lock()
 	for path := range w.fileTimes {
 		if !currentPaths[path] {
 			delete(w.fileTimes, path)
 		}
 	}
+	w.fileTimesMu.Unlock()
 
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
 			// File doesn't exist now
+			w.fileTimesMu.Lock()
 			if _, existed := w.fileTimes[path]; existed {
 				// File was deleted
 				delete(w.fileTimes, path)
 				changed = true
 			}
+			w.fileTimesMu.Unlock()
 			continue
 		}
 
 		modTime := info.ModTime()
+		w.fileTimesMu.Lock()
 		if prevTime, exists := w.fileTimes[path]; exists {
 			if !modTime.Equal(prevTime) {
 				// File was modified
@@ -173,6 +260,7 @@ func (w *Watcher) checkForChanges() bool {
 			w.fileTimes[path] = modTime
 			changed = true
 		}
+		w.fileTimesMu.Unlock()
 	}
 
 	return changed
