@@ -194,14 +194,16 @@ func (t *Tracker) AddResource(r *Resource) {
 	t.resources = append(t.resources, r)
 }
 
-// GetResource retrieves a resource by name
+// GetResource retrieves a resource by name.
+// Returns a copy so callers cannot mutate internal state.
 func (t *Tracker) GetResource(name string) *Resource {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
 	for _, r := range t.resources {
 		if r.Name == name {
-			return r
+			resourceCopy := *r
+			return &resourceCopy
 		}
 	}
 	return nil

@@ -148,11 +148,16 @@ func (u *Unit) Metrics() TestMetrics {
 	return u.metrics
 }
 
-// LastTestResult returns the most recent test result, or nil if never run
+// LastTestResult returns the most recent test result, or nil if never run.
+// Returns a copy so callers cannot mutate internal state.
 func (u *Unit) LastTestResult() *TestResult {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
-	return u.lastRun
+	if u.lastRun == nil {
+		return nil
+	}
+	resultCopy := *u.lastRun
+	return &resultCopy
 }
 
 // StartTest marks the unit as currently running
@@ -180,22 +185,24 @@ func (u *Unit) RecordTest(result *TestResult) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
+	resultCopy := *result
+
 	// Update state based on result
-	if result.Passed {
+	if resultCopy.Passed {
 		u.state = UnitStatePassed
 	} else {
 		u.state = UnitStateFailed
 	}
 
 	// Store last result
-	u.lastRun = result
+	u.lastRun = &resultCopy
 
 	// Add to history
 	run := TestRun{
-		Timestamp: result.Timestamp,
-		Duration:  result.Duration,
-		Passed:    result.Passed,
-		Output:    result.Output,
+		Timestamp: resultCopy.Timestamp,
+		Duration:  resultCopy.Duration,
+		Passed:    resultCopy.Passed,
+		Output:    resultCopy.Output,
 	}
 	u.runHistory = append(u.runHistory, run)
 

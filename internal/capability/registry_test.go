@@ -220,6 +220,60 @@ func TestRegistryListener(t *testing.T) {
 	}
 }
 
+func TestRegistryListenerReceivesCopy(t *testing.T) {
+	r := NewRegistry()
+
+	ready := make(chan struct{})
+	firstCalled := make(chan struct{}, 1)
+	secondCalled := make(chan []*Capability, 1)
+
+	first := &testListener{
+		onChanged: func(caps []*Capability) {
+			if len(caps) > 0 {
+				caps[0].Name = "mutated"
+			}
+			close(ready)
+			firstCalled <- struct{}{}
+		},
+	}
+	second := &testListener{
+		onChanged: func(caps []*Capability) {
+			<-ready
+			secondCalled <- caps
+		},
+	}
+
+	r.AddListener(first)
+	r.AddListener(second)
+
+	mock := &mockDiscoverer{
+		name: "test",
+		capabilities: []*Capability{
+			NewCapability("cap1", "Cap 1", TypeTool, DomainCore),
+		},
+	}
+	r.RegisterDiscoverer(mock)
+	r.Refresh()
+
+	select {
+	case <-firstCalled:
+	case <-time.After(1 * time.Second):
+		t.Fatal("first listener was not called within timeout")
+	}
+
+	select {
+	case caps := <-secondCalled:
+		if len(caps) != 1 {
+			t.Fatalf("expected 1 capability, got %d", len(caps))
+		}
+		if caps[0].Name != "Cap 1" {
+			t.Errorf("expected capability name 'Cap 1', got %q", caps[0].Name)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("second listener was not called within timeout")
+	}
+}
+
 func TestRegistryRemoveListener(t *testing.T) {
 	r := NewRegistry()
 

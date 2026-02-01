@@ -149,6 +149,24 @@ func TestGetResourceNotFound(t *testing.T) {
 	}
 }
 
+func TestGetResourceReturnsCopy(t *testing.T) {
+	tracker := New()
+
+	res := tracker.GetResource("Context")
+	if res == nil {
+		t.Fatal("expected Context resource to exist")
+	}
+
+	res.Current = 999
+	resAgain := tracker.GetResource("Context")
+	if resAgain == nil {
+		t.Fatal("expected Context resource to exist")
+	}
+	if resAgain.Current == 999 {
+		t.Error("GetResource returned a reference instead of a copy")
+	}
+}
+
 func TestConcurrentAccess(t *testing.T) {
 	tracker := New()
 

@@ -148,9 +148,7 @@ func (s *Session) SetState(state State) {
 func (s *Session) Frames() []*Frame {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	result := make([]*Frame, len(s.frames))
-	copy(result, s.frames)
-	return result
+	return cloneFrames(s.frames)
 }
 
 // CurrentFrame returns the topmost stack frame, or nil if none.
@@ -160,15 +158,16 @@ func (s *Session) CurrentFrame() *Frame {
 	if len(s.frames) == 0 {
 		return nil
 	}
-	return s.frames[0]
+	return cloneFrame(s.frames[0])
 }
 
 // SetFrames updates the call stack.
 func (s *Session) SetFrames(frames []*Frame) {
 	s.mu.Lock()
-	s.frames = frames
+	s.frames = cloneFrames(frames)
 	handlers := make([]EventHandler, len(s.handlers))
 	copy(handlers, s.handlers)
+	frameCount := len(s.frames)
 	s.mu.Unlock()
 
 	event := &Event{
@@ -176,7 +175,7 @@ func (s *Session) SetFrames(frames []*Frame) {
 		SessionID: s.id,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"frame_count": len(frames),
+			"frame_count": frameCount,
 		},
 	}
 	for _, h := range handlers {

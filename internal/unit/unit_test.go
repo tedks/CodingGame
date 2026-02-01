@@ -101,6 +101,39 @@ func TestUnitRecordTest_Passed(t *testing.T) {
 	}
 }
 
+func TestUnitLastTestResultReturnsCopy(t *testing.T) {
+	u := New("test", "test", 0, 0)
+	now := time.Now()
+	result := &TestResult{
+		Passed:    true,
+		Duration:  100 * time.Millisecond,
+		Timestamp: now,
+	}
+
+	u.RecordTest(result)
+
+	// Mutate original result after recording.
+	result.Passed = false
+
+	last := u.LastTestResult()
+	if last == nil {
+		t.Fatal("LastTestResult() returned nil")
+	}
+	if !last.Passed {
+		t.Error("LastTestResult() reflected external mutation")
+	}
+
+	// Mutate returned result and ensure internal state is unchanged.
+	last.Passed = false
+	lastAgain := u.LastTestResult()
+	if lastAgain == nil {
+		t.Fatal("LastTestResult() returned nil")
+	}
+	if !lastAgain.Passed {
+		t.Error("LastTestResult() returned a reference instead of a copy")
+	}
+}
+
 func TestUnitRecordTest_Failed(t *testing.T) {
 	u := New("test", "test", 0, 0)
 
