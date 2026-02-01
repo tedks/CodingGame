@@ -7,6 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/theme"
 )
 
 // Renderer draws the multi-agent orchestration UI.
@@ -18,23 +19,13 @@ func NewRenderer() *Renderer {
 	return &Renderer{}
 }
 
-// Layout constants
-const (
-	agentPadding      = 20
-	agentCardWidth    = 200
-	agentCardHeight   = 120
-	agentCardSpacing  = 20
-	agentCardsPerRow  = 4
-	agentHeaderHeight = 60
-)
-
 // Color scheme for agent statuses
 var statusColors = map[AgentStatus]color.RGBA{
-	StatusIdle:      {R: 0x75, G: 0x75, B: 0x75, A: 0xFF}, // Gray
-	StatusWorking:   {R: 0x2E, G: 0x7D, B: 0x32, A: 0xFF}, // Green
-	StatusPaused:    {R: 0xF5, G: 0x7F, B: 0x17, A: 0xFF}, // Orange
-	StatusCompleted: {R: 0x19, G: 0x76, B: 0xD2, A: 0xFF}, // Blue
-	StatusError:     {R: 0xC6, G: 0x28, B: 0x28, A: 0xFF}, // Red
+	StatusIdle:      theme.StatusNeutral,
+	StatusWorking:   theme.StatusSuccess,
+	StatusPaused:    theme.StatusWarning,
+	StatusCompleted: theme.StatusInfo,
+	StatusError:     theme.StatusError,
 }
 
 // Draw renders the multi-agent orchestration view.
@@ -49,21 +40,21 @@ func (r *Renderer) Draw(screen *ebiten.Image, agents []*Agent, x, y, width, heig
 
 	// If no agents, show empty state
 	if len(agents) == 0 {
-		r.drawEmptyState(screen, x, y+agentHeaderHeight, width, height-agentHeaderHeight)
+		r.drawEmptyState(screen, x, y+theme.PanelHeaderHeight, width, height-theme.PanelHeaderHeight)
 		return
 	}
 
 	// Draw agents as cards
-	startY := y + agentHeaderHeight + agentPadding
+	startY := y + theme.PanelHeaderHeight + theme.PanelPadding
 	for i, agent := range agents {
-		row := i / agentCardsPerRow
-		col := i % agentCardsPerRow
+		row := i / theme.MultiAgentCardsPerRow
+		col := i % theme.MultiAgentCardsPerRow
 
-		cardX := x + agentPadding + col*(agentCardWidth+agentCardSpacing)
-		cardY := startY + row*(agentCardHeight+agentCardSpacing)
+		cardX := x + theme.PanelPadding + col*(theme.MultiAgentCardWidth+theme.MultiAgentCardSpacing)
+		cardY := startY + row*(theme.MultiAgentCardHeight+theme.MultiAgentCardSpacing)
 
 		// Check if we're still in bounds
-		if cardY+agentCardHeight > y+height {
+		if cardY+theme.MultiAgentCardHeight > y+height {
 			break
 		}
 
@@ -72,22 +63,17 @@ func (r *Renderer) Draw(screen *ebiten.Image, agents []*Agent, x, y, width, heig
 }
 
 func tokenSummaryX(x, width int) (int, bool) {
-	tokenX := x + width - 200
-	minX := x + agentPadding
-	if tokenX < minX {
-		return minX, false
-	}
-	return tokenX, true
+	return theme.RightAlignedX(x, width, theme.MultiAgentTokenSummaryWidth, theme.PanelPadding)
 }
 
 // drawHeader renders the summary header.
 func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width int) {
 	// Draw background
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(agentHeaderHeight),
-		color.RGBA{R: 0x1A, G: 0x1A, B: 0x2E, A: 0xFF}, false)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(theme.PanelHeaderHeight),
+		theme.HeaderBackground, false)
 
 	// Draw title
-	ebitenutil.DebugPrintAt(screen, "MULTI-AGENT ORCHESTRATOR", x+agentPadding, y+10)
+	ebitenutil.DebugPrintAt(screen, "MULTI-AGENT ORCHESTRATOR", x+theme.PanelPadding, y+theme.PanelHeaderTitleOffsetY)
 
 	// Calculate status summary
 	statusCounts := make(map[AgentStatus]int)
@@ -98,8 +84,8 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width
 	}
 
 	// Draw status summary
-	summaryY := y + 30
-	summaryX := x + agentPadding
+	summaryY := y + theme.PanelHeaderSummaryOffsetY
+	summaryX := x + theme.PanelPadding
 	working := statusCounts[StatusWorking]
 	idle := statusCounts[StatusIdle]
 	paused := statusCounts[StatusPaused]
@@ -122,9 +108,9 @@ func (r *Renderer) drawEmptyState(screen *ebiten.Image, x, y, width, height int)
 	hint := "Agents will appear here when active"
 
 	// Center the messages
-	msgX := x + width/2 - len(msg)*3
-	msgY := y + height/2 - 20
-	hintX := x + width/2 - len(hint)*3
+	msgX := theme.CenterTextX(x, width, msg, theme.CompactTextCharWidth)
+	msgY := y + height/2 - theme.EmptyStateLineOffset
+	hintX := theme.CenterTextX(x, width, hint, theme.CompactTextCharWidth)
 	hintY := y + height/2
 
 	ebitenutil.DebugPrintAt(screen, msg, msgX, msgY)
@@ -137,25 +123,24 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 	statusColor := statusColors[agent.Status()]
 
 	// Draw card background
-	bgColor := color.RGBA{R: 0x2A, G: 0x2A, B: 0x3E, A: 0xFF}
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(agentCardWidth), float32(agentCardHeight),
-		bgColor, false)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(theme.MultiAgentCardWidth), float32(theme.MultiAgentCardHeight),
+		theme.CardBackground, false)
 
 	// Draw status indicator border
-	vector.StrokeRect(screen, float32(x), float32(y), float32(agentCardWidth), float32(agentCardHeight),
-		2, statusColor, false)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(theme.MultiAgentCardWidth), float32(theme.MultiAgentCardHeight),
+		theme.CardBorderWidth, statusColor, false)
 
 	// Draw agent name
-	nameY := y + 8
-	ebitenutil.DebugPrintAt(screen, agent.Name(), x+8, nameY)
+	nameY := y + theme.MultiAgentNameOffsetY
+	ebitenutil.DebugPrintAt(screen, agent.Name(), x+theme.CardTextPadding, nameY)
 
 	// Draw status indicator
-	statusY := y + 24
+	statusY := y + theme.MultiAgentStatusOffsetY
 	statusStr := fmt.Sprintf("[%s]", agent.Status())
-	ebitenutil.DebugPrintAt(screen, statusStr, x+8, statusY)
+	ebitenutil.DebugPrintAt(screen, statusStr, x+theme.CardTextPadding, statusY)
 
 	// Draw current task (truncated)
-	taskY := y + 44
+	taskY := y + theme.MultiAgentTaskOffsetY
 	task := agent.CurrentTask()
 	if len(task) > 25 {
 		task = task[:22] + "..."
@@ -163,45 +148,45 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 	if task == "" {
 		task = "(no task assigned)"
 	}
-	ebitenutil.DebugPrintAt(screen, task, x+8, taskY)
+	ebitenutil.DebugPrintAt(screen, task, x+theme.CardTextPadding, taskY)
 
 	// Draw context usage bar
-	usageY := y + 68
-	usageWidth := agentCardWidth - 16
-	usageHeight := 12
+	usageY := y + theme.MultiAgentUsageOffsetY
+	usageWidth := theme.MultiAgentCardWidth - 2*theme.CardTextPadding
+	usageHeight := theme.MultiAgentUsageBarHeight
 	usage := clampUnitInterval(agent.ContextUsage())
 
 	// Background
-	vector.DrawFilledRect(screen, float32(x+8), float32(usageY), float32(usageWidth), float32(usageHeight),
-		color.RGBA{R: 0x40, G: 0x40, B: 0x40, A: 0xFF}, false)
+	vector.DrawFilledRect(screen, float32(x+theme.CardTextPadding), float32(usageY), float32(usageWidth), float32(usageHeight),
+		theme.UsageBarBackground, false)
 
 	// Fill based on usage
 	usageColor := getUsageColor(usage)
 	fillWidth := int(float64(usageWidth) * usage)
 	if fillWidth > 0 {
-		vector.DrawFilledRect(screen, float32(x+8), float32(usageY), float32(fillWidth), float32(usageHeight),
+		vector.DrawFilledRect(screen, float32(x+theme.CardTextPadding), float32(usageY), float32(fillWidth), float32(usageHeight),
 			usageColor, false)
 	}
 
 	// Draw usage percentage
-	usageLabelY := y + 84
+	usageLabelY := y + theme.MultiAgentUsageLabelOffsetY
 	usageLabel := fmt.Sprintf("Context: %.0f%% | Files: %d", usage*100, agent.FileCount())
-	ebitenutil.DebugPrintAt(screen, usageLabel, x+8, usageLabelY)
+	ebitenutil.DebugPrintAt(screen, usageLabel, x+theme.CardTextPadding, usageLabelY)
 
 	// Draw tokens used
-	tokensY := y + 100
+	tokensY := y + theme.MultiAgentTokensOffsetY
 	tokensLabel := fmt.Sprintf("Tokens: %dk / %dk", agent.TokensUsed()/1000, agent.TokenLimit()/1000)
-	ebitenutil.DebugPrintAt(screen, tokensLabel, x+8, tokensY)
+	ebitenutil.DebugPrintAt(screen, tokensLabel, x+theme.CardTextPadding, tokensY)
 }
 
 // getUsageColor returns a color based on context usage percentage.
 func getUsageColor(usage float64) color.RGBA {
 	if usage < 0.5 {
-		return color.RGBA{R: 0x2E, G: 0x7D, B: 0x32, A: 0xFF} // Green
+		return theme.StatusSuccess
 	} else if usage < 0.8 {
-		return color.RGBA{R: 0xF5, G: 0x7F, B: 0x17, A: 0xFF} // Orange
+		return theme.StatusWarning
 	}
-	return color.RGBA{R: 0xC6, G: 0x28, B: 0x28, A: 0xFF} // Red
+	return theme.StatusError
 }
 
 func clampUnitInterval(value float64) float64 {

@@ -7,6 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/theme"
 )
 
 // Renderer draws the production environment visualization.
@@ -18,22 +19,12 @@ func NewRenderer() *Renderer {
 	return &Renderer{}
 }
 
-// Layout constants
-const (
-	prodPadding      = 20
-	prodCityWidth    = 180
-	prodCityHeight   = 100
-	prodCitySpacing  = 30
-	prodCitiesPerRow = 4
-	prodHeaderHeight = 60
-)
-
 // Color scheme for health statuses
 var healthColors = map[HealthStatus]color.RGBA{
-	HealthHealthy:   {R: 0x2E, G: 0x7D, B: 0x32, A: 0xFF}, // Green
-	HealthDegraded:  {R: 0xF5, G: 0x7F, B: 0x17, A: 0xFF}, // Orange
-	HealthUnhealthy: {R: 0xC6, G: 0x28, B: 0x28, A: 0xFF}, // Red
-	HealthUnknown:   {R: 0x75, G: 0x75, B: 0x75, A: 0xFF}, // Gray
+	HealthHealthy:   theme.StatusSuccess,
+	HealthDegraded:  theme.StatusWarning,
+	HealthUnhealthy: theme.StatusError,
+	HealthUnknown:   theme.StatusNeutral,
 }
 
 // Draw renders the production view to the screen.
@@ -48,21 +39,21 @@ func (r *Renderer) Draw(screen *ebiten.Image, services []*Service, x, y, width, 
 
 	// If no services, show empty state
 	if len(services) == 0 {
-		r.drawEmptyState(screen, x, y+prodHeaderHeight, width, height-prodHeaderHeight)
+		r.drawEmptyState(screen, x, y+theme.PanelHeaderHeight, width, height-theme.PanelHeaderHeight)
 		return
 	}
 
 	// Draw services as cities
-	startY := y + prodHeaderHeight + prodPadding
+	startY := y + theme.PanelHeaderHeight + theme.PanelPadding
 	for i, svc := range services {
-		row := i / prodCitiesPerRow
-		col := i % prodCitiesPerRow
+		row := i / theme.ProductionCitiesPerRow
+		col := i % theme.ProductionCitiesPerRow
 
-		cityX := x + prodPadding + col*(prodCityWidth+prodCitySpacing)
-		cityY := startY + row*(prodCityHeight+prodCitySpacing)
+		cityX := x + theme.PanelPadding + col*(theme.ProductionCityWidth+theme.ProductionCitySpacing)
+		cityY := startY + row*(theme.ProductionCityHeight+theme.ProductionCitySpacing)
 
 		// Check if we're still in bounds
-		if cityY+prodCityHeight > y+height {
+		if cityY+theme.ProductionCityHeight > y+height {
 			break
 		}
 
@@ -71,22 +62,17 @@ func (r *Renderer) Draw(screen *ebiten.Image, services []*Service, x, y, width, 
 }
 
 func weatherSummaryX(x, width int) (int, bool) {
-	weatherX := x + width - 300
-	minX := x + prodPadding
-	if weatherX < minX {
-		return minX, false
-	}
-	return weatherX, true
+	return theme.RightAlignedX(x, width, theme.ProductionWeatherSummaryWidth, theme.PanelPadding)
 }
 
 // drawHeader renders the summary header with weather overview.
 func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, width int) {
 	// Draw background
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(prodHeaderHeight),
-		color.RGBA{R: 0x1A, G: 0x1A, B: 0x2E, A: 0xFF}, false)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(theme.PanelHeaderHeight),
+		theme.HeaderBackground, false)
 
 	// Draw title
-	ebitenutil.DebugPrintAt(screen, "PRODUCTION REALM", x+prodPadding, y+10)
+	ebitenutil.DebugPrintAt(screen, "PRODUCTION REALM", x+theme.PanelPadding, y+theme.PanelHeaderTitleOffsetY)
 
 	// Calculate health summary
 	healthCounts := make(map[HealthStatus]int)
@@ -97,8 +83,8 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, services []*Service, x, y, w
 	}
 
 	// Draw health summary
-	summaryY := y + 30
-	summaryX := x + prodPadding
+	summaryY := y + theme.PanelHeaderSummaryOffsetY
+	summaryX := x + theme.PanelPadding
 	healthy := healthCounts[HealthHealthy]
 	degraded := healthCounts[HealthDegraded]
 	unhealthy := healthCounts[HealthUnhealthy]
@@ -122,9 +108,9 @@ func (r *Renderer) drawEmptyState(screen *ebiten.Image, x, y, width, height int)
 	hint := "Add a .production.json file to monitor services"
 
 	// Center the messages
-	msgX := x + width/2 - len(msg)*3
-	msgY := y + height/2 - 20
-	hintX := x + width/2 - len(hint)*3
+	msgX := theme.CenterTextX(x, width, msg, theme.CompactTextCharWidth)
+	msgY := y + height/2 - theme.EmptyStateLineOffset
+	hintX := theme.CenterTextX(x, width, hint, theme.CompactTextCharWidth)
 	hintY := y + height/2
 
 	ebitenutil.DebugPrintAt(screen, msg, msgX, msgY)
@@ -137,45 +123,44 @@ func (r *Renderer) drawCity(screen *ebiten.Image, svc *Service, x, y int) {
 	healthColor := healthColors[svc.Health]
 
 	// Draw city background
-	bgColor := color.RGBA{R: 0x2A, G: 0x2A, B: 0x3E, A: 0xFF}
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(prodCityWidth), float32(prodCityHeight),
-		bgColor, false)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(theme.ProductionCityWidth), float32(theme.ProductionCityHeight),
+		theme.CardBackground, false)
 
 	// Draw health indicator border
-	vector.StrokeRect(screen, float32(x), float32(y), float32(prodCityWidth), float32(prodCityHeight),
-		2, healthColor, false)
+	vector.StrokeRect(screen, float32(x), float32(y), float32(theme.ProductionCityWidth), float32(theme.ProductionCityHeight),
+		theme.CardBorderWidth, healthColor, false)
 
 	// Draw service name
-	nameY := y + 8
-	ebitenutil.DebugPrintAt(screen, svc.Name, x+8, nameY)
+	nameY := y + theme.ProductionNameOffsetY
+	ebitenutil.DebugPrintAt(screen, svc.Name, x+theme.CardTextPadding, nameY)
 
 	// Draw service type
-	typeY := y + 24
+	typeY := y + theme.ProductionTypeOffsetY
 	typeStr := fmt.Sprintf("[%s]", svc.Type)
-	ebitenutil.DebugPrintAt(screen, typeStr, x+8, typeY)
+	ebitenutil.DebugPrintAt(screen, typeStr, x+theme.CardTextPadding, typeY)
 
 	// Draw weather indicator
-	weatherY := y + 40
+	weatherY := y + theme.ProductionWeatherOffsetY
 	weatherStr := r.weatherDisplay(svc.Weather)
-	ebitenutil.DebugPrintAt(screen, weatherStr, x+8, weatherY)
+	ebitenutil.DebugPrintAt(screen, weatherStr, x+theme.CardTextPadding, weatherY)
 
 	// Draw health status
-	healthY := y + 56
+	healthY := y + theme.ProductionHealthOffsetY
 	healthStr := fmt.Sprintf("Status: %s", svc.Health)
-	ebitenutil.DebugPrintAt(screen, healthStr, x+8, healthY)
+	ebitenutil.DebugPrintAt(screen, healthStr, x+theme.CardTextPadding, healthY)
 
 	// Draw traffic if available
 	if svc.Metrics.RequestsPerSecond > 0 {
-		trafficY := y + 72
+		trafficY := y + theme.ProductionTrafficOffsetY
 		trafficStr := fmt.Sprintf("%.1f req/s", svc.Metrics.RequestsPerSecond)
-		ebitenutil.DebugPrintAt(screen, trafficStr, x+8, trafficY)
+		ebitenutil.DebugPrintAt(screen, trafficStr, x+theme.CardTextPadding, trafficY)
 	}
 
 	// Draw dependency count
 	if len(svc.Dependencies) > 0 {
-		depY := y + 72
+		depY := y + theme.ProductionDependencyOffsetY
 		depStr := fmt.Sprintf("Deps: %d", len(svc.Dependencies))
-		ebitenutil.DebugPrintAt(screen, depStr, x+prodCityWidth-60, depY)
+		ebitenutil.DebugPrintAt(screen, depStr, x+theme.ProductionCityWidth-theme.ProductionDependencyInset, depY)
 	}
 }
 

@@ -1,7 +1,10 @@
 package production
 
 import (
+	"image/color"
 	"testing"
+
+	"github.com/tedks/CodingGame/internal/theme"
 )
 
 func TestNewRenderer(t *testing.T) {
@@ -14,20 +17,18 @@ func TestNewRenderer(t *testing.T) {
 func TestGetHealthColor(t *testing.T) {
 	tests := []struct {
 		health   HealthStatus
-		expected [4]uint8 // R, G, B, A
+		expected color.RGBA
 	}{
-		{HealthHealthy, [4]uint8{0x2E, 0x7D, 0x32, 0xFF}},   // Green
-		{HealthDegraded, [4]uint8{0xF5, 0x7F, 0x17, 0xFF}},  // Orange
-		{HealthUnhealthy, [4]uint8{0xC6, 0x28, 0x28, 0xFF}}, // Red
-		{HealthUnknown, [4]uint8{0x75, 0x75, 0x75, 0xFF}},   // Gray
+		{HealthHealthy, theme.StatusSuccess},
+		{HealthDegraded, theme.StatusWarning},
+		{HealthUnhealthy, theme.StatusError},
+		{HealthUnknown, theme.StatusNeutral},
 	}
 
 	for _, tc := range tests {
 		c := GetHealthColor(tc.health)
-		if c.R != tc.expected[0] || c.G != tc.expected[1] || c.B != tc.expected[2] || c.A != tc.expected[3] {
-			t.Errorf("GetHealthColor(%v) = (%d,%d,%d,%d), expected (%d,%d,%d,%d)",
-				tc.health, c.R, c.G, c.B, c.A,
-				tc.expected[0], tc.expected[1], tc.expected[2], tc.expected[3])
+		if c != tc.expected {
+			t.Errorf("GetHealthColor(%v) = %v, expected %v", tc.health, c, tc.expected)
 		}
 	}
 }
@@ -72,8 +73,9 @@ func TestWeatherSummaryXGuard(t *testing.T) {
 		t.Error("expected guard to skip weather summary for narrow width")
 	}
 
-	want := x + 500 - 300
-	got, ok := weatherSummaryX(x, 500)
+	width := 500
+	want := x + width - theme.ProductionWeatherSummaryWidth
+	got, ok := weatherSummaryX(x, width)
 	if !ok {
 		t.Fatal("expected weather summary to render for wide width")
 	}
@@ -84,17 +86,17 @@ func TestWeatherSummaryXGuard(t *testing.T) {
 
 func TestLayoutConstants(t *testing.T) {
 	// Verify layout constants are reasonable
-	if prodCityWidth <= 0 {
-		t.Error("prodCityWidth should be positive")
+	if theme.ProductionCityWidth <= 0 {
+		t.Error("ProductionCityWidth should be positive")
 	}
-	if prodCityHeight <= 0 {
-		t.Error("prodCityHeight should be positive")
+	if theme.ProductionCityHeight <= 0 {
+		t.Error("ProductionCityHeight should be positive")
 	}
-	if prodCitiesPerRow <= 0 {
-		t.Error("prodCitiesPerRow should be positive")
+	if theme.ProductionCitiesPerRow <= 0 {
+		t.Error("ProductionCitiesPerRow should be positive")
 	}
-	if prodHeaderHeight <= 0 {
-		t.Error("prodHeaderHeight should be positive")
+	if theme.PanelHeaderHeight <= 0 {
+		t.Error("PanelHeaderHeight should be positive")
 	}
 }
 

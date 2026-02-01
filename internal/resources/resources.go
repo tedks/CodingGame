@@ -14,6 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/theme"
 )
 
 // Resource represents a trackable metric displayed in the resource bar
@@ -44,25 +45,25 @@ func New() *Tracker {
 				Current: 0,
 				Max:     200000, // 200k tokens
 				Unit:    "tokens",
-				Color:   color.RGBA{100, 150, 255, 255}, // Blue
+				Color:   theme.ResourceContext,
 			},
 			{
 				Name:    "API Cost",
 				Current: 0,
 				Max:     10000, // $100.00 (in cents)
 				Unit:    "cents",
-				Color:   color.RGBA{255, 200, 100, 255}, // Gold
+				Color:   theme.ResourceCost,
 			},
 			{
 				Name:    "Coverage",
 				Current: 0,
 				Max:     100, // Percentage
 				Unit:    "%",
-				Color:   color.RGBA{100, 255, 150, 255}, // Green
+				Color:   theme.ResourceCoverage,
 			},
 		},
-		bgColor:   color.RGBA{30, 30, 40, 255},
-		textColor: color.RGBA{200, 200, 220, 255},
+		bgColor:   theme.ResourcePanelBackground,
+		textColor: theme.ResourceText,
 	}
 }
 
@@ -106,7 +107,7 @@ func (t *Tracker) Draw(screen *ebiten.Image, x, y, width, height int) {
 
 // drawResource renders a single resource meter
 func (t *Tracker) drawResource(screen *ebiten.Image, r *Resource, x, y, width, height int) {
-	padding := 10
+	padding := theme.ResourcePadding
 
 	// Calculate fill percentage
 	fillPct := float32(0)
@@ -115,8 +116,8 @@ func (t *Tracker) drawResource(screen *ebiten.Image, r *Resource, x, y, width, h
 	}
 
 	// Draw resource bar background
-	barY := float32(y + height - 10)
-	barHeight := float32(5)
+	barY := float32(y + height - theme.ResourceBarBottomInset)
+	barHeight := float32(theme.ResourceBarHeight)
 	barWidth := float32(width - 2*padding)
 
 	vector.DrawFilledRect(
@@ -125,7 +126,7 @@ func (t *Tracker) drawResource(screen *ebiten.Image, r *Resource, x, y, width, h
 		barY,
 		barWidth,
 		barHeight,
-		color.RGBA{50, 50, 60, 255},
+		theme.ResourceBarBackground,
 		false,
 	)
 
@@ -144,7 +145,7 @@ func (t *Tracker) drawResource(screen *ebiten.Image, r *Resource, x, y, width, h
 
 	// Draw resource text
 	text := t.formatResourceText(r)
-	ebitenutil.DebugPrintAt(screen, text, x+padding, y+5)
+	ebitenutil.DebugPrintAt(screen, text, x+padding, y+theme.ResourceTextOffsetY)
 }
 
 func clampRatio(value float32) float32 {

@@ -6,6 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/theme"
 )
 
 // Renderer draws the capability inventory (tech tree view).
@@ -38,27 +39,27 @@ type Renderer struct {
 func NewRenderer() *Renderer {
 	return &Renderer{
 		// Domain colors (column headers)
-		coreColor:        color.RGBA{60, 80, 100, 255},
-		buildColor:       color.RGBA{80, 100, 60, 255},
-		versionCtrlColor: color.RGBA{100, 80, 60, 255},
-		deploymentColor:  color.RGBA{80, 60, 100, 255},
-		analysisColor:    color.RGBA{60, 100, 80, 255},
+		coreColor:        theme.CapabilityDomainCore,
+		buildColor:       theme.CapabilityDomainBuild,
+		versionCtrlColor: theme.CapabilityDomainVersionCtrl,
+		deploymentColor:  theme.CapabilityDomainDeployment,
+		analysisColor:    theme.CapabilityDomainAnalysis,
 
 		// Type colors (node border accents)
-		toolColor:        color.RGBA{100, 180, 255, 255},
-		mcpColor:         color.RGBA{255, 180, 100, 255},
-		commandColor:     color.RGBA{180, 100, 255, 255},
-		integrationColor: color.RGBA{100, 255, 180, 255},
+		toolColor:        theme.CapabilityTypeTool,
+		mcpColor:         theme.CapabilityTypeMCP,
+		commandColor:     theme.CapabilityTypeCommand,
+		integrationColor: theme.CapabilityTypeIntegration,
 
 		// Background
-		backgroundColor: color.RGBA{20, 25, 30, 255},
+		backgroundColor: theme.CapabilityBackground,
 
 		// Layout
-		columnWidth:  200,
-		nodeHeight:   40,
-		nodeMargin:   8,
-		headerHeight: 30,
-		padding:      16,
+		columnWidth:  theme.CapabilityColumnWidth,
+		nodeHeight:   theme.CapabilityNodeHeight,
+		nodeMargin:   theme.CapabilityNodeMargin,
+		headerHeight: theme.CapabilityHeaderHeight,
+		padding:      theme.CapabilityPadding,
 	}
 }
 
@@ -105,7 +106,7 @@ func (r *Renderer) Draw(screen *ebiten.Image, capabilities []*Capability, x, y, 
 	}
 
 	// Draw legend at bottom
-	r.drawLegend(screen, x+r.padding, y+height-40, width-2*r.padding)
+	r.drawLegend(screen, x+r.padding, y+height-theme.CapabilityLegendHeight, width-2*r.padding)
 }
 
 func (r *Renderer) columnLayout(width, height int, domains []Domain) (startYOffset, columnWidth, columnHeight int, ok bool) {
@@ -129,7 +130,7 @@ func (r *Renderer) columnLayout(width, height int, domains []Domain) (startYOffs
 		return 0, 0, 0, false
 	}
 
-	startYOffset = r.padding + 20 + r.padding
+	startYOffset = r.padding + theme.CapabilityTitleHeight + r.padding
 	columnHeight = height - startYOffset - r.padding
 	if columnHeight <= 0 {
 		return 0, 0, 0, false
@@ -152,8 +153,8 @@ func (r *Renderer) drawDomainColumn(screen *ebiten.Image, domain Domain, capabil
 
 	// Draw domain name centered in header
 	domainName := domain.String()
-	textX := x + (width-len(domainName)*7)/2 // Approximate centering (7px per char)
-	textY := y + (r.headerHeight-14)/2       // 14px line height
+	textX := theme.CenterTextX(x, width, domainName, theme.CapabilityHeaderCharWidth)
+	textY := theme.CenterTextY(y, r.headerHeight, theme.CapabilityHeaderLineHeight)
 	ebitenutil.DebugPrintAt(screen, domainName, textX, textY)
 
 	// Draw capability nodes
@@ -161,7 +162,7 @@ func (r *Renderer) drawDomainColumn(screen *ebiten.Image, domain Domain, capabil
 	for _, cap := range capabilities {
 		if nodeY+r.nodeHeight > y+maxHeight {
 			// No more space, draw overflow indicator
-			ebitenutil.DebugPrintAt(screen, "...", x+width/2-10, nodeY)
+			ebitenutil.DebugPrintAt(screen, "...", theme.CenterTextX(x, width, "...", theme.CapabilityHeaderCharWidth), nodeY)
 			break
 		}
 		r.drawCapabilityNode(screen, cap, x, nodeY, width)
@@ -170,16 +171,16 @@ func (r *Renderer) drawDomainColumn(screen *ebiten.Image, domain Domain, capabil
 
 	// Show count if empty
 	if len(capabilities) == 0 {
-		ebitenutil.DebugPrintAt(screen, "(none)", x+width/2-20, y+r.headerHeight+r.nodeMargin)
+		ebitenutil.DebugPrintAt(screen, "(none)", theme.CenterTextX(x, width, "(none)", theme.CapabilityHeaderCharWidth), y+r.headerHeight+r.nodeMargin)
 	}
 }
 
 // drawCapabilityNode draws a single capability.
 func (r *Renderer) drawCapabilityNode(screen *ebiten.Image, cap *Capability, x, y, width int) {
 	// Background
-	bgColor := color.RGBA{40, 45, 50, 255}
+	bgColor := theme.CapabilityNodeBackground
 	if !cap.Enabled {
-		bgColor = color.RGBA{30, 30, 30, 200}
+		bgColor = theme.CapabilityNodeDisabled
 	}
 	vector.DrawFilledRect(
 		screen,
@@ -194,19 +195,19 @@ func (r *Renderer) drawCapabilityNode(screen *ebiten.Image, cap *Capability, x, 
 	vector.DrawFilledRect(
 		screen,
 		float32(x), float32(y),
-		4, float32(r.nodeHeight),
+		float32(theme.CapabilityNodeAccentWidth), float32(r.nodeHeight),
 		accentColor,
 		false,
 	)
 
 	// Name (top line)
-	nameY := y + 6
-	ebitenutil.DebugPrintAt(screen, cap.Name, x+r.nodeMargin+4, nameY)
+	nameY := y + theme.CapabilityNodeNameOffsetY
+	ebitenutil.DebugPrintAt(screen, cap.Name, x+r.nodeMargin+theme.CapabilityNodeAccentWidth, nameY)
 
 	// Type indicator (smaller, below name)
 	typeText := cap.Type.String()
-	typeY := y + 22
-	ebitenutil.DebugPrintAt(screen, typeText, x+r.nodeMargin+4, typeY)
+	typeY := y + theme.CapabilityNodeTypeOffsetY
+	ebitenutil.DebugPrintAt(screen, typeText, x+r.nodeMargin+theme.CapabilityNodeAccentWidth, typeY)
 }
 
 // drawLegend draws the type color legend.
@@ -226,14 +227,14 @@ func (r *Renderer) drawLegend(screen *ebiten.Image, x, y, _ int) {
 		// Color swatch
 		vector.DrawFilledRect(
 			screen,
-			float32(currentX), float32(y+2),
-			10, 10,
+			float32(currentX), float32(y+theme.CapabilityLegendSwatchYOffset),
+			float32(theme.CapabilityLegendSwatchSize), float32(theme.CapabilityLegendSwatchSize),
 			item.color,
 			false,
 		)
 		// Label
-		ebitenutil.DebugPrintAt(screen, item.name, currentX+14, y)
-		currentX += len(item.name)*7 + 30
+		ebitenutil.DebugPrintAt(screen, item.name, currentX+theme.CapabilityLegendTextOffsetX, y)
+		currentX += len(item.name)*theme.CapabilityHeaderCharWidth + theme.CapabilityLegendItemSpacing
 	}
 }
 

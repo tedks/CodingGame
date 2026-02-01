@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "theme",
+    srcs = [
+        "helpers.go",
+        "layout.go",
+        "palette.go",
+    ],
+    importpath = "github.com/tedks/CodingGame/internal/theme",
+    visibility = ["//visibility:public"],
+)

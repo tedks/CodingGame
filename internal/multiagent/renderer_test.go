@@ -1,7 +1,10 @@
 package multiagent
 
 import (
+	"image/color"
 	"testing"
+
+	"github.com/tedks/CodingGame/internal/theme"
 )
 
 func TestNewRenderer(t *testing.T) {
@@ -14,38 +17,36 @@ func TestNewRenderer(t *testing.T) {
 func TestGetStatusColor(t *testing.T) {
 	tests := []struct {
 		status   AgentStatus
-		expected [4]uint8 // R, G, B, A
+		expected color.RGBA
 	}{
-		{StatusIdle, [4]uint8{0x75, 0x75, 0x75, 0xFF}},      // Gray
-		{StatusWorking, [4]uint8{0x2E, 0x7D, 0x32, 0xFF}},   // Green
-		{StatusPaused, [4]uint8{0xF5, 0x7F, 0x17, 0xFF}},    // Orange
-		{StatusCompleted, [4]uint8{0x19, 0x76, 0xD2, 0xFF}}, // Blue
-		{StatusError, [4]uint8{0xC6, 0x28, 0x28, 0xFF}},     // Red
+		{StatusIdle, theme.StatusNeutral},
+		{StatusWorking, theme.StatusSuccess},
+		{StatusPaused, theme.StatusWarning},
+		{StatusCompleted, theme.StatusInfo},
+		{StatusError, theme.StatusError},
 	}
 
 	for _, tc := range tests {
 		c := GetStatusColor(tc.status)
-		if c.R != tc.expected[0] || c.G != tc.expected[1] || c.B != tc.expected[2] || c.A != tc.expected[3] {
-			t.Errorf("GetStatusColor(%v) = (%d,%d,%d,%d), expected (%d,%d,%d,%d)",
-				tc.status, c.R, c.G, c.B, c.A,
-				tc.expected[0], tc.expected[1], tc.expected[2], tc.expected[3])
+		if c != tc.expected {
+			t.Errorf("GetStatusColor(%v) = %v, expected %v", tc.status, c, tc.expected)
 		}
 	}
 }
 
 func TestLayoutConstants(t *testing.T) {
 	// Verify layout constants are reasonable
-	if agentCardWidth <= 0 {
-		t.Error("agentCardWidth should be positive")
+	if theme.MultiAgentCardWidth <= 0 {
+		t.Error("MultiAgentCardWidth should be positive")
 	}
-	if agentCardHeight <= 0 {
-		t.Error("agentCardHeight should be positive")
+	if theme.MultiAgentCardHeight <= 0 {
+		t.Error("MultiAgentCardHeight should be positive")
 	}
-	if agentCardsPerRow <= 0 {
-		t.Error("agentCardsPerRow should be positive")
+	if theme.MultiAgentCardsPerRow <= 0 {
+		t.Error("MultiAgentCardsPerRow should be positive")
 	}
-	if agentHeaderHeight <= 0 {
-		t.Error("agentHeaderHeight should be positive")
+	if theme.PanelHeaderHeight <= 0 {
+		t.Error("PanelHeaderHeight should be positive")
 	}
 }
 
@@ -113,8 +114,9 @@ func TestTokenSummaryXGuard(t *testing.T) {
 		t.Error("expected guard to skip token summary for narrow width")
 	}
 
-	want := x + 300 - 200
-	got, ok := tokenSummaryX(x, 300)
+	width := 300
+	want := x + width - theme.MultiAgentTokenSummaryWidth
+	got, ok := tokenSummaryX(x, width)
 	if !ok {
 		t.Fatal("expected token summary to render for wide width")
 	}
