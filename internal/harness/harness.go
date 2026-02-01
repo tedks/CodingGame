@@ -125,11 +125,15 @@ func (b *BaseHarness) Name() string {
 
 // Version returns the harness version
 func (b *BaseHarness) Version() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 	return b.version
 }
 
 // SetVersion sets the harness version
 func (b *BaseHarness) SetVersion(version string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.version = version
 }
 
