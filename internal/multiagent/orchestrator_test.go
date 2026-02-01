@@ -1,6 +1,7 @@
 package multiagent
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -375,7 +376,7 @@ func TestOrchestratorListener(t *testing.T) {
 	done := make(chan struct{})
 
 	listener := &testListener{
-		onChanged: func(agents []*Agent) {
+		onChanged: func(_ context.Context, agents []*Agent) {
 			mu.Lock()
 			notifiedAgents = agents
 			mu.Unlock()
@@ -416,12 +417,12 @@ func TestOrchestratorRemoveListener(t *testing.T) {
 
 // testListener implements OrchestratorListener for testing.
 type testListener struct {
-	onChanged func([]*Agent)
+	onChanged func(context.Context, []*Agent)
 }
 
-func (l *testListener) OnAgentsChanged(agents []*Agent) {
+func (l *testListener) OnAgentsChanged(ctx context.Context, agents []*Agent) {
 	if l.onChanged != nil {
-		l.onChanged(agents)
+		l.onChanged(ctx, agents)
 	}
 }
 
@@ -563,14 +564,14 @@ func TestOrchestratorListenerPanicRecovery(t *testing.T) {
 
 	// Listener that panics
 	panicListener := &testListener{
-		onChanged: func(agents []*Agent) {
+		onChanged: func(_ context.Context, agents []*Agent) {
 			panic("intentional panic for testing")
 		},
 	}
 
 	// Listener that works normally
 	normalListener := &testListener{
-		onChanged: func(agents []*Agent) {
+		onChanged: func(_ context.Context, agents []*Agent) {
 			close(done)
 		},
 	}
