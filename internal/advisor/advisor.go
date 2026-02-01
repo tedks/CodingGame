@@ -50,7 +50,7 @@ type AdvisorMetrics struct {
 	InsightCount int
 	CancelCount  int
 
-	// Timing statistics
+	// Timing statistics (zero when TotalRuns == 0)
 	TotalDuration time.Duration
 	AvgDuration   time.Duration
 	MinDuration   time.Duration
@@ -81,9 +81,6 @@ func New(config Config, x, y float64) *Advisor {
 		insights: make([]*Insight, 0),
 		x:        x,
 		y:        y,
-		metrics: AdvisorMetrics{
-			MinDuration: time.Duration(1<<63 - 1), // Max int64
-		},
 	}
 }
 
@@ -230,11 +227,16 @@ func (a *Advisor) CompleteAnalysis(duration time.Duration, tokensIn, tokensOut i
 	a.metrics.TotalTokensOut += tokensOut
 
 	// Update min/max
-	if duration < a.metrics.MinDuration {
+	if a.metrics.TotalRuns == 1 {
 		a.metrics.MinDuration = duration
-	}
-	if duration > a.metrics.MaxDuration {
 		a.metrics.MaxDuration = duration
+	} else {
+		if duration < a.metrics.MinDuration {
+			a.metrics.MinDuration = duration
+		}
+		if duration > a.metrics.MaxDuration {
+			a.metrics.MaxDuration = duration
+		}
 	}
 
 	// Update average

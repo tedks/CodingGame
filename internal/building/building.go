@@ -69,7 +69,7 @@ type Metrics struct {
 	SuccessCount int
 	FailureCount int
 
-	// Timing statistics
+	// Timing statistics (zero when TotalBuilds == 0)
 	AvgDuration  time.Duration
 	MinDuration  time.Duration
 	MaxDuration  time.Duration
@@ -117,9 +117,6 @@ func New(target build.Target, buildSystem string, x, y float64) *Building {
 		y:            y,
 		state:        StateIdle,
 		buildHistory: make([]BuildRecord, 0),
-		metrics: Metrics{
-			MinDuration: time.Duration(1<<63 - 1), // Max int64
-		},
 	}
 }
 
@@ -250,8 +247,8 @@ func (b *Building) updateMetrics() {
 	var totalCacheHits int64
 	var successCount int
 
-	minDuration := time.Duration(1<<63 - 1)
-	var maxDuration time.Duration
+	minDuration := b.buildHistory[0].Duration
+	maxDuration := b.buildHistory[0].Duration
 
 	for _, record := range b.buildHistory {
 		// Duration stats

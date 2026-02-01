@@ -177,6 +177,32 @@ func TestBuildingRecordBuild_NilResult(t *testing.T) {
 	}
 }
 
+func TestMetrics_ZeroValues(t *testing.T) {
+	metrics := Metrics{}
+
+	if metrics.TotalBuilds != 0 {
+		t.Errorf("TotalBuilds zero value = %d, want 0", metrics.TotalBuilds)
+	}
+	if metrics.SuccessRate != 0.0 {
+		t.Errorf("SuccessRate zero value = %v, want 0.0", metrics.SuccessRate)
+	}
+	if metrics.AvgCacheHitRate != 0.0 {
+		t.Errorf("AvgCacheHitRate zero value = %v, want 0.0", metrics.AvgCacheHitRate)
+	}
+	if metrics.MinDuration != 0 {
+		t.Errorf("MinDuration zero value = %v, want 0", metrics.MinDuration)
+	}
+	if metrics.MaxDuration != 0 {
+		t.Errorf("MaxDuration zero value = %v, want 0", metrics.MaxDuration)
+	}
+	if metrics.AvgDuration != 0 {
+		t.Errorf("AvgDuration zero value = %v, want 0", metrics.AvgDuration)
+	}
+	if metrics.LastDuration != 0 {
+		t.Errorf("LastDuration zero value = %v, want 0", metrics.LastDuration)
+	}
+}
+
 func TestBuildingMetrics_MultipleBuilds(t *testing.T) {
 	target := build.Target{ID: "test", Name: "test"}
 	b := New(target, "bazel", 0, 0)

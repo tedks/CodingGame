@@ -72,7 +72,7 @@ type TestMetrics struct {
 	PassCount int
 	FailCount int
 
-	// Timing statistics
+	// Timing statistics (zero when TotalRuns == 0)
 	AvgDuration  time.Duration
 	MinDuration  time.Duration
 	MaxDuration  time.Duration
@@ -110,9 +110,6 @@ func New(id, name string, x, y float64) *Unit {
 		y:          y,
 		state:      UnitStateIdle,
 		runHistory: make([]TestRun, 0),
-		metrics: TestMetrics{
-			MinDuration: time.Duration(1<<63 - 1), // Max int64
-		},
 	}
 }
 
@@ -231,8 +228,8 @@ func (u *Unit) updateMetrics() {
 	var totalDuration time.Duration
 	var passCount int
 
-	minDuration := time.Duration(1<<63 - 1)
-	var maxDuration time.Duration
+	minDuration := u.runHistory[0].Duration
+	maxDuration := u.runHistory[0].Duration
 
 	for _, run := range u.runHistory {
 		// Duration stats
