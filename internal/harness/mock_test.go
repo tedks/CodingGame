@@ -48,6 +48,10 @@ func TestMockHarness_SendPrompt(t *testing.T) {
 	if err := mock.SendPrompt("should fail"); err == nil {
 		t.Error("SendPrompt should fail after Stop")
 	}
+
+	if err := mock.Start(context.Background(), config); err == nil {
+		t.Error("Start should fail after Stop")
+	}
 }
 
 func TestMockHarness_SimulateEvents(t *testing.T) {
