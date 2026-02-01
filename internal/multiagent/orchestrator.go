@@ -32,6 +32,7 @@ func AbandonedListenerCount() int64 {
 type OrchestratorListener interface {
 	// OnAgentsChanged is called when agents are added, removed, or updated.
 	// The provided slice is read-only and must not be modified.
+	// For an immutable, point-in-time view, call Agent.Snapshot on each entry.
 	// Listeners are called asynchronously in goroutines.
 	// The context is canceled when the listener times out.
 	// Implementations should return promptly when ctx.Done() is closed.
@@ -44,6 +45,13 @@ type OrchestratorListener interface {
 // - Assigning tasks to agents
 // - Monitoring agent status
 // - Coordinating agent handoffs
+//
+// # Concurrency
+//
+// mu protects: agents, listeners, nextID.
+// The agents map is keyed by agent.ID and IDs are immutable after creation.
+// Listener callbacks are invoked without holding mu; a snapshot of listeners is
+// taken to avoid holding the lock across user code.
 type Orchestrator struct {
 	mu sync.RWMutex
 
@@ -109,6 +117,8 @@ func (o *Orchestrator) Get(id string) *Agent {
 }
 
 // GetAll returns all agents sorted by name.
+// The returned slice contains live agent pointers; use Agent.Snapshot for a
+// read-only copy of agent state.
 func (o *Orchestrator) GetAll() []*Agent {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
@@ -123,6 +133,26 @@ func (o *Orchestrator) GetAll() []*Agent {
 	})
 
 	return agents
+}
+
+// Snapshots returns immutable snapshots of all agents sorted by name.
+func (o *Orchestrator) Snapshots() []AgentSnapshot {
+	o.mu.RLock()
+	agents := make([]*Agent, 0, len(o.agents))
+	for _, agent := range o.agents {
+		agents = append(agents, agent)
+	}
+	o.mu.RUnlock()
+
+	snapshots := make([]AgentSnapshot, len(agents))
+	for i, agent := range agents {
+		snapshots[i] = agent.Snapshot()
+	}
+
+	sort.Slice(snapshots, func(i, j int) bool {
+		return snapshots[i].Name < snapshots[j].Name
+	})
+	return snapshots
 }
 
 // Count returns the total number of agents.

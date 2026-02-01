@@ -12,6 +12,25 @@ import (
 // Config files change infrequently, so the 5-second default interval is appropriate.
 // Benefits: No file handle exhaustion, works on all platforms, simple implementation.
 // Trade-off: Small delay (configurable) between file change and detection.
+//
+// # Concurrency
+//
+// mu protects: registry, pollInterval, running, stopCh, newTicker.
+// fileTimesMu protects: fileTimes.
+//
+// Goroutines:
+// - poll: started by Start, exits when stopCh is closed.
+//
+// Channel: stopCh (chan struct{})
+// - Created by: Start
+// - Closed by: Stop
+// - Read by: poll
+//
+// # State machine
+//
+// Idle -> Running -> Stopped
+// Start is idempotent; Stop is idempotent. A watcher may be restarted after Stop,
+// which creates a new stopCh and poll goroutine.
 type Watcher struct {
 	mu sync.Mutex
 
@@ -25,6 +44,14 @@ type Watcher struct {
 	// File modification times for change detection
 	fileTimesMu sync.Mutex
 	fileTimes   map[string]time.Time
+}
+
+// WatcherSnapshot is an immutable, point-in-time view of watcher state.
+// Modifying the snapshot does not affect the underlying watcher.
+type WatcherSnapshot struct {
+	Running      bool
+	PollInterval time.Duration
+	TrackedPaths int
 }
 
 type ticker interface {
@@ -121,6 +148,24 @@ func (w *Watcher) IsRunning() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.running
+}
+
+// Snapshot returns an immutable, point-in-time view of watcher state.
+func (w *Watcher) Snapshot() WatcherSnapshot {
+	w.mu.Lock()
+	running := w.running
+	pollInterval := w.pollInterval
+	w.mu.Unlock()
+
+	w.fileTimesMu.Lock()
+	tracked := len(w.fileTimes)
+	w.fileTimesMu.Unlock()
+
+	return WatcherSnapshot{
+		Running:      running,
+		PollInterval: pollInterval,
+		TrackedPaths: tracked,
+	}
 }
 
 // poll is the main polling loop.

@@ -44,18 +44,23 @@ var statusColors = map[AgentStatus]color.RGBA{
 //   - x, y: the top-left position to start drawing
 //   - width, height: the available drawing area
 func (r *Renderer) Draw(screen *ebiten.Image, agents []*Agent, x, y, width, height int) {
+	snapshots := make([]AgentSnapshot, len(agents))
+	for i, agent := range agents {
+		snapshots[i] = agent.Snapshot()
+	}
+
 	// Draw header with summary
-	r.drawHeader(screen, agents, x, y, width)
+	r.drawHeader(screen, snapshots, x, y, width)
 
 	// If no agents, show empty state
-	if len(agents) == 0 {
+	if len(snapshots) == 0 {
 		r.drawEmptyState(screen, x, y+agentHeaderHeight, width, height-agentHeaderHeight)
 		return
 	}
 
 	// Draw agents as cards
 	startY := y + agentHeaderHeight + agentPadding
-	for i, agent := range agents {
+	for i, agent := range snapshots {
 		row := i / agentCardsPerRow
 		col := i % agentCardsPerRow
 
@@ -81,7 +86,7 @@ func tokenSummaryX(x, width int) (int, bool) {
 }
 
 // drawHeader renders the summary header.
-func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width int) {
+func (r *Renderer) drawHeader(screen *ebiten.Image, agents []AgentSnapshot, x, y, width int) {
 	// Draw background
 	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(agentHeaderHeight),
 		color.RGBA{R: 0x1A, G: 0x1A, B: 0x2E, A: 0xFF}, false)
@@ -93,8 +98,8 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width
 	statusCounts := make(map[AgentStatus]int)
 	var totalTokens int64
 	for _, agent := range agents {
-		statusCounts[agent.Status()]++
-		totalTokens += agent.TokensUsed()
+		statusCounts[agent.Status]++
+		totalTokens += agent.TokensUsed
 	}
 
 	// Draw status summary
@@ -132,9 +137,9 @@ func (r *Renderer) drawEmptyState(screen *ebiten.Image, x, y, width, height int)
 }
 
 // drawAgentCard renders a single agent as a card.
-func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
+func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent AgentSnapshot, x, y int) {
 	// Get color based on status
-	statusColor := statusColors[agent.Status()]
+	statusColor := statusColors[agent.Status]
 
 	// Draw card background
 	bgColor := color.RGBA{R: 0x2A, G: 0x2A, B: 0x3E, A: 0xFF}
@@ -147,16 +152,16 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 
 	// Draw agent name
 	nameY := y + 8
-	ebitenutil.DebugPrintAt(screen, agent.Name(), x+8, nameY)
+	ebitenutil.DebugPrintAt(screen, agent.Name, x+8, nameY)
 
 	// Draw status indicator
 	statusY := y + 24
-	statusStr := fmt.Sprintf("[%s]", agent.Status())
+	statusStr := fmt.Sprintf("[%s]", agent.Status)
 	ebitenutil.DebugPrintAt(screen, statusStr, x+8, statusY)
 
 	// Draw current task (truncated)
 	taskY := y + 44
-	task := agent.CurrentTask()
+	task := agent.CurrentTask
 	if len(task) > 25 {
 		task = task[:22] + "..."
 	}
@@ -169,7 +174,7 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 	usageY := y + 68
 	usageWidth := agentCardWidth - 16
 	usageHeight := 12
-	usage := clampUnitInterval(agent.ContextUsage())
+	usage := clampUnitInterval(agent.ContextUsage)
 
 	// Background
 	vector.DrawFilledRect(screen, float32(x+8), float32(usageY), float32(usageWidth), float32(usageHeight),
@@ -185,12 +190,12 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 
 	// Draw usage percentage
 	usageLabelY := y + 84
-	usageLabel := fmt.Sprintf("Context: %.0f%% | Files: %d", usage*100, agent.FileCount())
+	usageLabel := fmt.Sprintf("Context: %.0f%% | Files: %d", usage*100, agent.FileCount)
 	ebitenutil.DebugPrintAt(screen, usageLabel, x+8, usageLabelY)
 
 	// Draw tokens used
 	tokensY := y + 100
-	tokensLabel := fmt.Sprintf("Tokens: %dk / %dk", agent.TokensUsed()/1000, agent.TokenLimit()/1000)
+	tokensLabel := fmt.Sprintf("Tokens: %dk / %dk", agent.TokensUsed/1000, agent.TokenLimit/1000)
 	ebitenutil.DebugPrintAt(screen, tokensLabel, x+8, tokensY)
 }
 

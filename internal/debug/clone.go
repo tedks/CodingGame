@@ -41,3 +41,42 @@ func cloneVariable(v *Variable) *Variable {
 	cloned.Children = cloneVariables(v.Children)
 	return &cloned
 }
+
+func cloneDataFlows(flows []*DataFlow) []*DataFlow {
+	if flows == nil {
+		return nil
+	}
+	cloned := make([]*DataFlow, len(flows))
+	for i, flow := range flows {
+		cloned[i] = cloneDataFlow(flow)
+	}
+	return cloned
+}
+
+func cloneDataFlow(flow *DataFlow) *DataFlow {
+	if flow == nil {
+		return nil
+	}
+	cloned := *flow
+	cloned.Variables = cloneVariables(flow.Variables)
+	return &cloned
+}
+
+func cloneBreakpoints(bps map[string]*Breakpoint) []*Breakpoint {
+	if bps == nil {
+		return nil
+	}
+	cloned := make([]*Breakpoint, 0, len(bps))
+	for _, bp := range bps {
+		cloned = append(cloned, cloneBreakpoint(bp))
+	}
+	return cloned
+}
+
+func cloneBreakpoint(bp *Breakpoint) *Breakpoint {
+	if bp == nil {
+		return nil
+	}
+	cloned := *bp
+	return &cloned
+}
