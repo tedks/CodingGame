@@ -211,6 +211,18 @@ func TestConfig_MatchesFile(t *testing.T) {
 			filePath: "lib/main.go",
 			want:     false,
 		},
+		{
+			name:     "double star directory match",
+			patterns: []string{"**/auth/**"},
+			filePath: "src/auth/login.go",
+			want:     true,
+		},
+		{
+			name:     "double star extension match",
+			patterns: []string{"**/*.go"},
+			filePath: "src/internal/main.go",
+			want:     true,
+		},
 	}
 
 	for _, tt := range tests {

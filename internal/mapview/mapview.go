@@ -172,10 +172,10 @@ func New(projectPath string, width, height int) (*MapView, error) {
 		tileMap:           tileMap,
 		treeLayout:        treeLayout,
 		bgColor:           color.RGBA{20, 20, 30, 255},
-		gridColor:     color.RGBA{60, 60, 80, 255},
-		fogColor:      color.RGBA{40, 40, 50, 200},
-		revealedColor: color.RGBA{100, 120, 150, 255},
-		selectedColor: color.RGBA{255, 200, 100, 180}, // Yellow highlight for selection
+		gridColor:         color.RGBA{60, 60, 80, 255},
+		fogColor:          color.RGBA{40, 40, 50, 200},
+		revealedColor:     color.RGBA{100, 120, 150, 255},
+		selectedColor:     color.RGBA{255, 200, 100, 180}, // Yellow highlight for selection
 		// Belt colors for dataflow view
 		beltImportColor:      color.RGBA{100, 150, 200, 255}, // Blue for imports
 		beltInheritanceColor: color.RGBA{200, 150, 100, 255}, // Orange for inheritance
