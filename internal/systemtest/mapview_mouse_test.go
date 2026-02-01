@@ -1,6 +1,7 @@
 package systemtest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,19 @@ import (
 
 // MapView mouse interaction tests verify single-click selection, double-click callbacks,
 // drag vs click threshold, and border gap hit detection.
+
+const (
+	mapViewTestWidth  = 800
+	mapViewTestHeight = 600
+)
+
+type mouseReleaseAction struct {
+	Button ebiten.MouseButton
+}
+
+func (a mouseReleaseAction) Apply(source *testutil.TestInputSource) {
+	source.QueueMouseRelease(a.Button)
+}
 
 // createTestMapView creates a MapView with a temp directory containing test files.
 // Returns the MapView and a cleanup function.
@@ -46,7 +60,7 @@ func createTestMapView(t *testing.T) (*mapview.MapView, func()) {
 	}
 
 	// Create a new map view
-	mv, err := mapview.New(tmpDir, 800, 600)
+	mv, err := mapview.New(tmpDir, mapViewTestWidth, mapViewTestHeight)
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		t.Fatalf("failed to create map view: %v", err)
@@ -59,6 +73,104 @@ func createTestMapView(t *testing.T) (*mapview.MapView, func()) {
 	return mv, cleanup
 }
 
+func runScenarioOnMapView(t *testing.T, mv *mapview.MapView, source *testutil.TestInputSource, scenario *testutil.Scenario) {
+	t.Helper()
+
+	for i, step := range scenario.Steps {
+		if step.Action != nil {
+			step.Action.Apply(source)
+		}
+
+		frames := step.WaitFrames + 1
+		for frame := 0; frame < frames; frame++ {
+			source.AdvanceFrame()
+			mv.Update()
+		}
+
+		if step.Assertion != nil {
+			if err := step.Assertion(); err != nil {
+				t.Fatalf("scenario %q step %d failed: %v", scenario.Name, i, err)
+			}
+		}
+	}
+}
+
+func primeMapViewLayout(mv *mapview.MapView) {
+	screen := ebiten.NewImage(mapViewTestWidth, mapViewTestHeight)
+	mv.Draw(screen, 0, 0)
+}
+
+func findTileScreenPos(t *testing.T, mv *mapview.MapView) (int, int, *tile.Tile) {
+	t.Helper()
+
+	primeMapViewLayout(mv)
+
+	const step = 4
+	for y := 0; y < mapViewTestHeight; y += step {
+		for x := 0; x < mapViewTestWidth; x += step {
+			found := mv.TileAtScreenPos(x, y)
+			if found != nil {
+				return x, y, found
+			}
+		}
+	}
+
+	t.Fatalf("failed to find a tile within %dx%d viewport", mapViewTestWidth, mapViewTestHeight)
+	return 0, 0, nil
+}
+
+func findTileBounds(t *testing.T, mv *mapview.MapView, startX, startY int, target *tile.Tile) (int, int, int, int) {
+	t.Helper()
+
+	minX, maxX := startX, startX
+	for x := startX; x >= 0; x-- {
+		if mv.TileAtScreenPos(x, startY) != target {
+			break
+		}
+		minX = x
+	}
+	for x := startX; x < mapViewTestWidth; x++ {
+		if mv.TileAtScreenPos(x, startY) != target {
+			break
+		}
+		maxX = x
+	}
+
+	minY, maxY := startY, startY
+	for y := startY; y >= 0; y-- {
+		if mv.TileAtScreenPos(startX, y) != target {
+			break
+		}
+		minY = y
+	}
+	for y := startY; y < mapViewTestHeight; y++ {
+		if mv.TileAtScreenPos(startX, y) != target {
+			break
+		}
+		maxY = y
+	}
+
+	return minX, maxX, minY, maxY
+}
+
+func findGapX(t *testing.T, mv *mapview.MapView, minX, maxX, y int) int {
+	t.Helper()
+
+	for x := maxX + 1; x < mapViewTestWidth && x <= maxX+5; x++ {
+		if mv.TileAtScreenPos(x, y) == nil {
+			return x
+		}
+	}
+	for x := minX - 1; x >= 0 && x >= minX-5; x-- {
+		if mv.TileAtScreenPos(x, y) == nil {
+			return x
+		}
+	}
+
+	t.Fatalf("unable to find border gap near tile at y=%d", y)
+	return 0
+}
+
 func testMapViewSingleClickSelectsTile(t *testing.T) {
 	mv, cleanup := createTestMapView(t)
 	defer cleanup()
@@ -66,38 +178,35 @@ func testMapViewSingleClickSelectsTile(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	mv.SetInputSource(source)
 
+	clickX, clickY, target := findTileScreenPos(t, mv)
+
 	// Initially no selection
 	if mv.SelectedTile() != nil {
 		t.Error("expected no tile selected initially")
 	}
 
-	// Position the mouse over a tile (need to find where tiles are drawn)
-	// At ZoomWorld (default), tile size is 64. First tile starts at pan position.
-	// With default pan (0,0) and TopPadding of 1 row, first tile is at (0, 64).
-	// We'll click in the middle of the first tile area.
-	tileSize := 64 // ZoomWorld tile size
-	clickX := tileSize / 2
-	clickY := tileSize + (tileSize / 2) // Account for TopPadding row
+	var selected *tile.Tile
+	mv.SetOnTileSelect(func(t *tile.Tile) {
+		selected = t
+	})
 
-	// Move mouse to position
-	source.QueueMouseMove(clickX, clickY)
-	source.AdvanceFrame()
-	mv.Update()
+	scenario := testutil.NewScenario("MapViewSingleClickSelectsTile")
+	scenario.Move(clickX, clickY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if mv.SelectedTile() == nil {
+			return fmt.Errorf("expected tile to be selected after click")
+		}
+		if mv.SelectedTile() != target {
+			return fmt.Errorf("expected selected tile %q, got %q", target.Path(), mv.SelectedTile().Path())
+		}
+		if selected != target {
+			return fmt.Errorf("expected select callback for %q", target.Path())
+		}
+		return nil
+	})
 
-	// Press mouse button
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Release mouse button (click detection happens on release)
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Should have selected a tile (the specific tile depends on tree layout)
-	// We verify that clicking in the tile area selects something
-	// Note: This test validates the mechanism, not specific tile positions
-	// which depend on tree layout ordering
+	runScenarioOnMapView(t, mv, source, scenario)
 }
 
 func testMapViewDoubleClickTriggersCallback(t *testing.T) {
@@ -107,42 +216,34 @@ func testMapViewDoubleClickTriggersCallback(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	mv.SetInputSource(source)
 
-	var doubleClickCalled bool
+	clickX, clickY, target := findTileScreenPos(t, mv)
+
+	var doubleClickCount int
+	var doubleClickTile *tile.Tile
 	mv.SetOnTileDoubleClick(func(t *tile.Tile) {
-		doubleClickCalled = true
+		doubleClickCount++
+		doubleClickTile = t
 	})
 
-	// First click
-	tileSize := 64
-	clickX := tileSize / 2
-	clickY := tileSize + (tileSize / 2)
+	scenario := testutil.NewScenario("MapViewDoubleClickTriggersCallback")
+	scenario.Move(clickX, clickY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if doubleClickCount != 1 {
+			return fmt.Errorf("expected double-click callback once, got %d", doubleClickCount)
+		}
+		if doubleClickTile != target {
+			return fmt.Errorf("expected double-click tile %q, got %v", target.Path(), doubleClickTile)
+		}
+		if mv.SelectedTile() != target {
+			return fmt.Errorf("expected selected tile %q after double click", target.Path())
+		}
+		return nil
+	})
 
-	source.QueueMouseMove(clickX, clickY)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Second click (same position, quick succession = double-click)
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Double-click callback should have been called if a tile was under cursor
-	// Note: Actual invocation depends on tile being present at click location
-	// We don't assert here because tile position depends on tree layout,
-	// but the callback mechanism is verified by the compiler accepting the code
-	_ = doubleClickCalled // Used to verify callback was properly set up
+	runScenarioOnMapView(t, mv, source, scenario)
 }
 
 func testMapViewDoubleClickUpdatesSelection(t *testing.T) {
@@ -152,43 +253,29 @@ func testMapViewDoubleClickUpdatesSelection(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	mv.SetInputSource(source)
 
+	clickX, clickY, target := findTileScreenPos(t, mv)
+
 	// This test verifies that double-click also updates selectedTile
 	// (the bug fix being tested)
-	tileSize := 64
-	clickX := tileSize / 2
-	clickY := tileSize + (tileSize / 2)
 
-	// First click
-	source.QueueMouseMove(clickX, clickY)
-	source.AdvanceFrame()
-	mv.Update()
+	scenario := testutil.NewScenario("MapViewDoubleClickUpdatesSelection")
+	scenario.Move(clickX, clickY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if mv.SelectedTile() != target {
+			return fmt.Errorf("expected selected tile %q after first click", target.Path())
+		}
+		return nil
+	})
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if mv.SelectedTile() != target {
+			return fmt.Errorf("expected selected tile %q after double click", target.Path())
+		}
+		return nil
+	})
 
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Record selection after first click
-	firstSelection := mv.SelectedTile()
-
-	// Second click (double-click)
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Selection should still be set after double-click (same tile)
-	// This validates the bug fix: double-click now updates selectedTile
-	afterDoubleClick := mv.SelectedTile()
-	if firstSelection != nil && afterDoubleClick == nil {
-		t.Error("double-click should maintain tile selection")
-	}
+	runScenarioOnMapView(t, mv, source, scenario)
 }
 
 func testMapViewDragVsClickThreshold(t *testing.T) {
@@ -198,43 +285,29 @@ func testMapViewDragVsClickThreshold(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	mv.SetInputSource(source)
 
+	startX, startY, _ := findTileScreenPos(t, mv)
+
 	var selectCalled bool
 	mv.SetOnTileSelect(func(t *tile.Tile) {
 		selectCalled = true
 	})
 
-	tileSize := 64
-	startX := tileSize / 2
-	startY := tileSize + (tileSize / 2)
+	scenario := testutil.NewScenario("MapViewDragVsClickThreshold")
+	scenario.Move(startX, startY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.Move(startX+10, startY+10, 0)
+	scenario.Move(startX+20, startY+20, 0)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if selectCalled {
+			return fmt.Errorf("drag operation should not trigger tile selection")
+		}
+		if mv.SelectedTile() != nil {
+			return fmt.Errorf("expected no tile selected after drag")
+		}
+		return nil
+	})
 
-	// Position mouse and start "drag" that exceeds threshold
-	source.QueueMouseMove(startX, startY)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Move more than DragThreshold (5 pixels) while holding
-	// Simulate multiple frames of movement
-	source.QueueMouseMove(startX+10, startY+10)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseMove(startX+20, startY+20)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Release - should be treated as drag, not click
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Drag should NOT trigger select callback
-	if selectCalled {
-		t.Error("drag operation should not trigger tile selection")
-	}
+	runScenarioOnMapView(t, mv, source, scenario)
 }
 
 func testMapViewClickInBorderGap(t *testing.T) {
@@ -244,32 +317,40 @@ func testMapViewClickInBorderGap(t *testing.T) {
 	source := testutil.NewTestInputSource()
 	mv.SetInputSource(source)
 
-	// This test verifies that clicking in the border gap between tiles
-	// does not select a tile (tests the TileBorderSpacing fix)
+	clickX, clickY, target := findTileScreenPos(t, mv)
+	minX, maxX, _, _ := findTileBounds(t, mv, clickX, clickY, target)
+	gapX := findGapX(t, mv, minX, maxX, clickY)
 
-	tileSize := 64
-	borderSpacing := 2 // TileBorderSpacing constant
+	var selectCount int
+	mv.SetOnTileSelect(func(t *tile.Tile) {
+		selectCount++
+	})
 
-	// Position at the right edge of a tile (in the border gap area)
-	// The effective tile size is tileSize - borderSpacing, so clicks
-	// at position >= (tileSize - borderSpacing) should not select
-	clickX := tileSize - borderSpacing/2 // In the gap area
-	clickY := tileSize + (tileSize / 2)
+	scenario := testutil.NewScenario("MapViewClickInBorderGap")
+	scenario.Move(clickX, clickY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if mv.SelectedTile() != target {
+			return fmt.Errorf("expected selected tile %q before border gap click", target.Path())
+		}
+		if selectCount != 1 {
+			return fmt.Errorf("expected one selection before border gap click, got %d", selectCount)
+		}
+		return nil
+	})
+	scenario.Move(gapX, clickY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if mv.SelectedTile() != nil {
+			return fmt.Errorf("expected no tile selected after border gap click")
+		}
+		if selectCount != 1 {
+			return fmt.Errorf("expected border gap click to not select a tile, got %d selections", selectCount)
+		}
+		return nil
+	})
 
-	source.QueueMouseMove(clickX, clickY)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Selection behavior in border gap depends on exact tile positions
-	// This test documents the expected behavior after the fix
+	runScenarioOnMapView(t, mv, source, scenario)
 }
 
 func testMapViewTripleClickBehavior(t *testing.T) {
@@ -278,6 +359,8 @@ func testMapViewTripleClickBehavior(t *testing.T) {
 
 	source := testutil.NewTestInputSource()
 	mv.SetInputSource(source)
+
+	clickX, clickY, target := findTileScreenPos(t, mv)
 
 	// Track callback invocations
 	var singleClickCount int
@@ -289,42 +372,25 @@ func testMapViewTripleClickBehavior(t *testing.T) {
 		doubleClickCount++
 	})
 
-	tileSize := 64
-	clickX := tileSize / 2
-	clickY := tileSize + (tileSize / 2)
+	scenario := testutil.NewScenario("MapViewTripleClickBehavior")
+	scenario.Move(clickX, clickY, 0)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(testutil.ClickMouse{Button: ebiten.MouseButtonLeft}, 0, nil)
+	scenario.AddStep(mouseReleaseAction{Button: ebiten.MouseButtonLeft}, 0, func() error {
+		if singleClickCount != 1 {
+			return fmt.Errorf("expected 1 single-click callback, got %d", singleClickCount)
+		}
+		if doubleClickCount != 2 {
+			return fmt.Errorf("expected 2 double-click callbacks, got %d", doubleClickCount)
+		}
+		if mv.SelectedTile() != target {
+			return fmt.Errorf("expected selected tile %q after triple click", target.Path())
+		}
+		return nil
+	})
 
-	// Position mouse
-	source.QueueMouseMove(clickX, clickY)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// First click - should be single click
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Second click - should be double click
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// Third click (rapid) - should be treated as a NEW single click, not another double
-	// because the double-click was already consumed
-	source.QueueMouseClick(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-	source.QueueMouseRelease(ebiten.MouseButtonLeft)
-	source.AdvanceFrame()
-	mv.Update()
-
-	// The third click should start a new click cycle
-	// Expected behavior: click 1 = single, click 2 = double, click 3 = single (new cycle)
-	// Actual callback counts depend on whether tiles are under cursor
-	// This test documents and verifies the triple-click behavior
+	runScenarioOnMapView(t, mv, source, scenario)
 }
