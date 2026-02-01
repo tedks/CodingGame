@@ -57,6 +57,9 @@ func (c *ClaudeHarness) Start(ctx context.Context, config harness.Config) error 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.IsStopped() {
+		return fmt.Errorf("harness already stopped")
+	}
 	if c.IsRunning() {
 		return fmt.Errorf("harness already running")
 	}
@@ -309,6 +312,10 @@ func (c *ClaudeHarness) Stop() error {
 	defer c.mu.Unlock()
 
 	if !c.IsRunning() {
+		c.SetRunning(false)
+		c.closeOnce.Do(func() {
+			c.CloseEvents()
+		})
 		return nil
 	}
 

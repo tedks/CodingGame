@@ -107,6 +107,7 @@ type BaseHarness struct {
 	name    string
 	version string
 	running bool
+	stopped bool
 	events  chan Event
 }
 
@@ -140,11 +141,28 @@ func (b *BaseHarness) IsRunning() bool {
 	return b.running
 }
 
-// SetRunning sets the running state
+// IsStopped returns whether the harness has been stopped.
+// Once stopped, a harness cannot be restarted.
+func (b *BaseHarness) IsStopped() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.stopped
+}
+
+// SetRunning sets the running state.
+// Setting running to false marks the harness as stopped.
 func (b *BaseHarness) SetRunning(running bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.running = running
+	if running {
+		if b.stopped {
+			return
+		}
+		b.running = true
+		return
+	}
+	b.running = false
+	b.stopped = true
 }
 
 // Events returns the events channel
