@@ -104,9 +104,6 @@ type BuildOptions struct {
 	// Zero means use adapter's default timeout.
 	Timeout time.Duration
 
-	// Verbose enables detailed output capture
-	Verbose bool
-
 	// Clean forces a clean build (no cache)
 	Clean bool
 

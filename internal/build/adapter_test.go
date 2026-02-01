@@ -276,9 +276,6 @@ func TestBuildOptions(t *testing.T) {
 	if opts.Timeout != 0 {
 		t.Errorf("default Timeout should be 0, got %v", opts.Timeout)
 	}
-	if opts.Verbose {
-		t.Error("default Verbose should be false, got true")
-	}
 	if opts.Clean {
 		t.Error("default Clean should be false, got true")
 	}
@@ -288,15 +285,11 @@ func TestBuildOptions(t *testing.T) {
 
 	// Test setting values
 	opts.Timeout = 5 * time.Minute
-	opts.Verbose = true
 	opts.Clean = true
 	opts.Jobs = 4
 
 	if opts.Timeout != 5*time.Minute {
 		t.Errorf("Timeout = %v, want 5m", opts.Timeout)
-	}
-	if !opts.Verbose {
-		t.Error("Verbose should be true")
 	}
 	if !opts.Clean {
 		t.Error("Clean should be true")

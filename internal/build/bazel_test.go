@@ -432,9 +432,6 @@ func TestBuildOptions_Defaults(t *testing.T) {
 	if opts.Timeout != 0 {
 		t.Errorf("default Timeout = %v, want 0", opts.Timeout)
 	}
-	if opts.Verbose {
-		t.Error("default Verbose = true, want false")
-	}
 	if opts.Clean {
 		t.Error("default Clean = true, want false")
 	}

@@ -34,9 +34,8 @@ type Building struct {
 	y float64
 
 	// State
-	state      BuildState
-	lastBuild  *build.Result
-	buildQueue []BuildRequest
+	state     BuildState
+	lastBuild *build.Result
 
 	// Metrics (historical)
 	buildHistory []BuildRecord
@@ -52,12 +51,6 @@ const (
 	StateSuccess  BuildState = "success"  // Last build succeeded
 	StateFailed   BuildState = "failed"   // Last build failed
 )
-
-// BuildRequest represents a queued build operation
-type BuildRequest struct {
-	Options   *build.BuildOptions
-	Timestamp time.Time
-}
 
 // BuildRecord stores historical build information
 type BuildRecord struct {
@@ -124,7 +117,6 @@ func New(target build.Target, buildSystem string, x, y float64) *Building {
 		y:            y,
 		state:        StateIdle,
 		buildHistory: make([]BuildRecord, 0),
-		buildQueue:   make([]BuildRequest, 0),
 		metrics: Metrics{
 			MinDuration: time.Duration(1<<63 - 1), // Max int64
 		},

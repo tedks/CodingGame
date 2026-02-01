@@ -45,7 +45,6 @@ func TestIntegration_BazelWorkflow(t *testing.T) {
 	// 3. Build should also fail gracefully without bazel
 	opts := &BuildOptions{
 		Timeout: 5 * time.Second,
-		Verbose: true,
 	}
 	_, err = adapter.Build(tmpDir, "//test:target", opts)
 	if err == nil {
