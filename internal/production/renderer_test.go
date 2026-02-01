@@ -2,6 +2,8 @@ package production
 
 import (
 	"testing"
+
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 func TestNewRenderer(t *testing.T) {
@@ -93,8 +95,8 @@ func TestLayoutConstants(t *testing.T) {
 	if prodCitiesPerRow <= 0 {
 		t.Error("prodCitiesPerRow should be positive")
 	}
-	if prodHeaderHeight <= 0 {
-		t.Error("prodHeaderHeight should be positive")
+	if ui.DefaultHeaderLayout().Height <= 0 {
+		t.Error("default header height should be positive")
 	}
 }
 

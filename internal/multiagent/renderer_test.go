@@ -2,6 +2,8 @@ package multiagent
 
 import (
 	"testing"
+
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 func TestNewRenderer(t *testing.T) {
@@ -44,8 +46,8 @@ func TestLayoutConstants(t *testing.T) {
 	if agentCardsPerRow <= 0 {
 		t.Error("agentCardsPerRow should be positive")
 	}
-	if agentHeaderHeight <= 0 {
-		t.Error("agentHeaderHeight should be positive")
+	if ui.DefaultHeaderLayout().Height <= 0 {
+		t.Error("default header height should be positive")
 	}
 }
 

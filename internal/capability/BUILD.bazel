@@ -13,6 +13,7 @@ go_library(
     importpath = "github.com/tedks/CodingGame/internal/capability",
     visibility = ["//visibility:public"],
     deps = [
+        "//internal/ui",
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
         "@com_github_hajimehoshi_ebiten_v2//ebitenutil",
         "@com_github_hajimehoshi_ebiten_v2//vector",

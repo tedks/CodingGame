@@ -6,7 +6,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 // Renderer draws the multi-agent orchestration UI.
@@ -20,12 +20,10 @@ func NewRenderer() *Renderer {
 
 // Layout constants
 const (
-	agentPadding      = 20
-	agentCardWidth    = 200
-	agentCardHeight   = 120
-	agentCardSpacing  = 20
-	agentCardsPerRow  = 4
-	agentHeaderHeight = 60
+	agentCardWidth   = 200
+	agentCardHeight  = 120
+	agentCardSpacing = 20
+	agentCardsPerRow = 4
 )
 
 // Color scheme for agent statuses
@@ -44,22 +42,25 @@ var statusColors = map[AgentStatus]color.RGBA{
 //   - x, y: the top-left position to start drawing
 //   - width, height: the available drawing area
 func (r *Renderer) Draw(screen *ebiten.Image, agents []*Agent, x, y, width, height int) {
+	headerLayout := ui.DefaultHeaderLayout()
+
 	// Draw header with summary
-	r.drawHeader(screen, agents, x, y, width)
+	r.drawHeader(screen, agents, x, y, width, headerLayout)
 
 	// If no agents, show empty state
 	if len(agents) == 0 {
-		r.drawEmptyState(screen, x, y+agentHeaderHeight, width, height-agentHeaderHeight)
+		ui.DrawEmptyState(screen, "No active agents", "Agents will appear here when active",
+			x, y+headerLayout.Height, width, height-headerLayout.Height)
 		return
 	}
 
 	// Draw agents as cards
-	startY := y + agentHeaderHeight + agentPadding
+	startY := y + headerLayout.Height + headerLayout.Padding
 	for i, agent := range agents {
 		row := i / agentCardsPerRow
 		col := i % agentCardsPerRow
 
-		cardX := x + agentPadding + col*(agentCardWidth+agentCardSpacing)
+		cardX := x + headerLayout.Padding + col*(agentCardWidth+agentCardSpacing)
 		cardY := startY + row*(agentCardHeight+agentCardSpacing)
 
 		// Check if we're still in bounds
@@ -72,22 +73,13 @@ func (r *Renderer) Draw(screen *ebiten.Image, agents []*Agent, x, y, width, heig
 }
 
 func tokenSummaryX(x, width int) (int, bool) {
-	tokenX := x + width - 200
-	minX := x + agentPadding
-	if tokenX < minX {
-		return minX, false
-	}
-	return tokenX, true
+	layout := ui.DefaultHeaderLayout()
+	return ui.RightAlignedSummaryX(x, width, 200, layout.Padding)
 }
 
 // drawHeader renders the summary header.
-func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width int) {
-	// Draw background
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(width), float32(agentHeaderHeight),
-		color.RGBA{R: 0x1A, G: 0x1A, B: 0x2E, A: 0xFF}, false)
-
-	// Draw title
-	ebitenutil.DebugPrintAt(screen, "MULTI-AGENT ORCHESTRATOR", x+agentPadding, y+10)
+func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width int, layout ui.HeaderLayout) {
+	ui.DrawHeader(screen, "MULTI-AGENT ORCHESTRATOR", x, y, width, layout)
 
 	// Calculate status summary
 	statusCounts := make(map[AgentStatus]int)
@@ -98,15 +90,14 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width
 	}
 
 	// Draw status summary
-	summaryY := y + 30
-	summaryX := x + agentPadding
+	summaryY := y + layout.SummaryOffsetY
 	working := statusCounts[StatusWorking]
 	idle := statusCounts[StatusIdle]
 	paused := statusCounts[StatusPaused]
 
 	summary := fmt.Sprintf("Agents: %d | Working: %d | Idle: %d | Paused: %d",
 		len(agents), working, idle, paused)
-	ebitenutil.DebugPrintAt(screen, summary, summaryX, summaryY)
+	ui.DrawHeaderSummary(screen, summary, x, y, layout)
 
 	// Draw token usage
 	tokenX, ok := tokenSummaryX(x, width)
@@ -116,34 +107,13 @@ func (r *Renderer) drawHeader(screen *ebiten.Image, agents []*Agent, x, y, width
 	}
 }
 
-// drawEmptyState renders a message when no agents are active.
-func (r *Renderer) drawEmptyState(screen *ebiten.Image, x, y, width, height int) {
-	msg := "No active agents"
-	hint := "Agents will appear here when active"
-
-	// Center the messages
-	msgX := x + width/2 - len(msg)*3
-	msgY := y + height/2 - 20
-	hintX := x + width/2 - len(hint)*3
-	hintY := y + height/2
-
-	ebitenutil.DebugPrintAt(screen, msg, msgX, msgY)
-	ebitenutil.DebugPrintAt(screen, hint, hintX, hintY)
-}
-
 // drawAgentCard renders a single agent as a card.
 func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 	// Get color based on status
 	statusColor := statusColors[agent.Status()]
 
 	// Draw card background
-	bgColor := color.RGBA{R: 0x2A, G: 0x2A, B: 0x3E, A: 0xFF}
-	vector.DrawFilledRect(screen, float32(x), float32(y), float32(agentCardWidth), float32(agentCardHeight),
-		bgColor, false)
-
-	// Draw status indicator border
-	vector.StrokeRect(screen, float32(x), float32(y), float32(agentCardWidth), float32(agentCardHeight),
-		2, statusColor, false)
+	ui.DrawCard(screen, x, y, agentCardWidth, agentCardHeight, ui.DefaultCardStyle(statusColor))
 
 	// Draw agent name
 	nameY := y + 8
@@ -171,17 +141,10 @@ func (r *Renderer) drawAgentCard(screen *ebiten.Image, agent *Agent, x, y int) {
 	usageHeight := 12
 	usage := clampUnitInterval(agent.ContextUsage())
 
-	// Background
-	vector.DrawFilledRect(screen, float32(x+8), float32(usageY), float32(usageWidth), float32(usageHeight),
-		color.RGBA{R: 0x40, G: 0x40, B: 0x40, A: 0xFF}, false)
-
 	// Fill based on usage
 	usageColor := getUsageColor(usage)
-	fillWidth := int(float64(usageWidth) * usage)
-	if fillWidth > 0 {
-		vector.DrawFilledRect(screen, float32(x+8), float32(usageY), float32(fillWidth), float32(usageHeight),
-			usageColor, false)
-	}
+	ui.DrawProgressBar(screen, x+8, usageY, usageWidth, usageHeight, usage,
+		color.RGBA{R: 0x40, G: 0x40, B: 0x40, A: 0xFF}, usageColor)
 
 	// Draw usage percentage
 	usageLabelY := y + 84

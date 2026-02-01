@@ -6,6 +6,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/tedks/CodingGame/internal/ui"
 )
 
 // Renderer draws the capability inventory (tech tree view).
@@ -181,23 +182,12 @@ func (r *Renderer) drawCapabilityNode(screen *ebiten.Image, cap *Capability, x, 
 	if !cap.Enabled {
 		bgColor = color.RGBA{30, 30, 30, 200}
 	}
-	vector.DrawFilledRect(
-		screen,
-		float32(x), float32(y),
-		float32(width), float32(r.nodeHeight),
-		bgColor,
-		false,
-	)
-
-	// Left border accent by type
 	accentColor := r.getTypeColor(cap.Type)
-	vector.DrawFilledRect(
-		screen,
-		float32(x), float32(y),
-		4, float32(r.nodeHeight),
-		accentColor,
-		false,
-	)
+	ui.DrawCard(screen, x, y, width, r.nodeHeight, ui.CardStyle{
+		Background:  bgColor,
+		AccentWidth: 4,
+		AccentColor: accentColor,
+	})
 
 	// Name (top line)
 	nameY := y + 6
