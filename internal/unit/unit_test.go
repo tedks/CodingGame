@@ -425,6 +425,18 @@ func TestTestMetrics_ZeroValues(t *testing.T) {
 	if metrics.CoveragePercent != 0.0 {
 		t.Errorf("CoveragePercent zero value = %v, want 0.0", metrics.CoveragePercent)
 	}
+	if metrics.MinDuration != 0 {
+		t.Errorf("MinDuration zero value = %v, want 0", metrics.MinDuration)
+	}
+	if metrics.MaxDuration != 0 {
+		t.Errorf("MaxDuration zero value = %v, want 0", metrics.MaxDuration)
+	}
+	if metrics.AvgDuration != 0 {
+		t.Errorf("AvgDuration zero value = %v, want 0", metrics.AvgDuration)
+	}
+	if metrics.LastDuration != 0 {
+		t.Errorf("LastDuration zero value = %v, want 0", metrics.LastDuration)
+	}
 }
 
 func TestTestResult_Fields(t *testing.T) {
