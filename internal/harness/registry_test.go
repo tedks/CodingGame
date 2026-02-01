@@ -256,6 +256,9 @@ func TestBaseHarness(t *testing.T) {
 	if b.IsRunning() {
 		t.Error("IsRunning() should be false initially")
 	}
+	if b.IsStopped() {
+		t.Error("IsStopped() should be false initially")
+	}
 
 	b.SetVersion("1.0.0")
 	if b.Version() != "1.0.0" {
@@ -265,6 +268,19 @@ func TestBaseHarness(t *testing.T) {
 	b.SetRunning(true)
 	if !b.IsRunning() {
 		t.Error("IsRunning() should be true after SetRunning(true)")
+	}
+
+	b.SetRunning(false)
+	if b.IsRunning() {
+		t.Error("IsRunning() should be false after SetRunning(false)")
+	}
+	if !b.IsStopped() {
+		t.Error("IsStopped() should be true after SetRunning(false)")
+	}
+
+	b.SetRunning(true)
+	if b.IsRunning() {
+		t.Error("IsRunning() should remain false after stop")
 	}
 }
 
