@@ -18,6 +18,7 @@ go_test(
         "adapter_test.go",
         "bazel_test.go",
         "cargo_test.go",
+        "integration_test.go",
         "npm_test.go",
     ],
     embed = [":build"],
