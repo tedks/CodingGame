@@ -7,6 +7,54 @@ import (
 	"time"
 )
 
+type manualTicker struct {
+	ch chan time.Time
+}
+
+func newManualTicker() *manualTicker {
+	return &manualTicker{ch: make(chan time.Time, 1)}
+}
+
+func (t *manualTicker) Channel() <-chan time.Time {
+	return t.ch
+}
+
+func (t *manualTicker) Stop() {}
+
+func (t *manualTicker) Tick() {
+	select {
+	case t.ch <- time.Now():
+	default:
+	}
+}
+
+type serviceListener struct {
+	ch chan []*Service
+}
+
+func (l *serviceListener) OnServicesChanged(services []*Service) {
+	select {
+	case l.ch <- services:
+	default:
+	}
+}
+
+func waitForRefresh(t *testing.T, ch <-chan []*Service) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for registry refresh")
+	}
+}
+
+func setModTime(t *testing.T, path string, modTime time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("failed to set mod time: %v", err)
+	}
+}
+
 func TestNewWatcher(t *testing.T) {
 	r := NewRegistry()
 	w := NewWatcher(r)
@@ -69,7 +117,8 @@ func TestWatcherDetectsFileCreation(t *testing.T) {
 
 	// Create watcher with short poll interval for testing
 	w := NewWatcher(r)
-	w.SetPollInterval(50 * time.Millisecond)
+	manual := newManualTicker()
+	w.newTicker = func(time.Duration) ticker { return manual }
 
 	// Start watcher
 	if err := w.Start(); err != nil {
@@ -77,8 +126,10 @@ func TestWatcherDetectsFileCreation(t *testing.T) {
 	}
 	defer w.Stop()
 
+	listener := &serviceListener{ch: make(chan []*Service, 1)}
+	r.AddListener(listener)
+
 	// Initially no services
-	r.Refresh()
 	if r.Count() != 0 {
 		t.Errorf("expected 0 services initially, got %d", r.Count())
 	}
@@ -90,8 +141,9 @@ func TestWatcherDetectsFileCreation(t *testing.T) {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
-	// Wait for watcher to detect change and refresh
-	time.Sleep(200 * time.Millisecond)
+	setModTime(t, configPath, time.Unix(10, 0))
+	manual.Tick()
+	waitForRefresh(t, listener.ch)
 
 	// Should now have service
 	if r.Count() != 1 {
@@ -108,6 +160,8 @@ func TestWatcherDetectsFileModification(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(config1), 0644); err != nil {
 		t.Fatalf("failed to write initial config: %v", err)
 	}
+	baseTime := time.Unix(10, 0)
+	setModTime(t, configPath, baseTime)
 
 	// Create registry with discoverer
 	r := NewRegistry()
@@ -116,28 +170,33 @@ func TestWatcherDetectsFileModification(t *testing.T) {
 
 	// Create watcher with short poll interval
 	w := NewWatcher(r)
-	w.SetPollInterval(50 * time.Millisecond)
+	manual := newManualTicker()
+	w.newTicker = func(time.Duration) ticker { return manual }
 	if err := w.Start(); err != nil {
 		t.Fatalf("Start() returned error: %v", err)
 	}
 	defer w.Stop()
+
+	listener := &serviceListener{ch: make(chan []*Service, 1)}
+	r.AddListener(listener)
+
+	r.Refresh()
+	waitForRefresh(t, listener.ch)
 
 	// Initially 1 service
 	if r.Count() != 1 {
 		t.Errorf("expected 1 service initially, got %d", r.Count())
 	}
 
-	// Wait a bit to ensure file mtime is different
-	time.Sleep(100 * time.Millisecond)
-
 	// Modify the config file
 	config2 := `{"services": {"svc1": {"type": "http", "endpoint": "http://svc1"}, "svc2": {"type": "grpc", "endpoint": "localhost:9000"}}}`
 	if err := os.WriteFile(configPath, []byte(config2), 0644); err != nil {
 		t.Fatalf("failed to write modified config: %v", err)
 	}
+	setModTime(t, configPath, baseTime.Add(1*time.Minute))
 
-	// Wait for watcher to detect change
-	time.Sleep(200 * time.Millisecond)
+	manual.Tick()
+	waitForRefresh(t, listener.ch)
 
 	// Should now have 2 services
 	if r.Count() != 2 {
@@ -154,6 +213,8 @@ func TestWatcherDetectsFileDeletion(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
+	baseTime := time.Unix(20, 0)
+	setModTime(t, configPath, baseTime)
 
 	// Create registry with discoverer
 	r := NewRegistry()
@@ -162,11 +223,18 @@ func TestWatcherDetectsFileDeletion(t *testing.T) {
 
 	// Create watcher with short poll interval
 	w := NewWatcher(r)
-	w.SetPollInterval(50 * time.Millisecond)
+	manual := newManualTicker()
+	w.newTicker = func(time.Duration) ticker { return manual }
 	if err := w.Start(); err != nil {
 		t.Fatalf("Start() returned error: %v", err)
 	}
 	defer w.Stop()
+
+	listener := &serviceListener{ch: make(chan []*Service, 1)}
+	r.AddListener(listener)
+
+	r.Refresh()
+	waitForRefresh(t, listener.ch)
 
 	// Initially 1 service
 	if r.Count() != 1 {
@@ -178,8 +246,8 @@ func TestWatcherDetectsFileDeletion(t *testing.T) {
 		t.Fatalf("failed to delete config: %v", err)
 	}
 
-	// Wait for watcher to detect change
-	time.Sleep(200 * time.Millisecond)
+	manual.Tick()
+	waitForRefresh(t, listener.ch)
 
 	// Should now have 0 services
 	if r.Count() != 0 {

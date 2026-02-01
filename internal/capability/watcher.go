@@ -20,10 +20,28 @@ type Watcher struct {
 	running      bool
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
+	newTicker    func(time.Duration) ticker
 
 	// File modification times for change detection
 	fileTimesMu sync.Mutex
 	fileTimes   map[string]time.Time
+}
+
+type ticker interface {
+	Channel() <-chan time.Time
+	Stop()
+}
+
+type realTicker struct {
+	*time.Ticker
+}
+
+func (t realTicker) Channel() <-chan time.Time {
+	return t.Ticker.C
+}
+
+func newRealTicker(interval time.Duration) ticker {
+	return realTicker{Ticker: time.NewTicker(interval)}
 }
 
 // NewWatcher creates a new watcher for the given registry.
@@ -32,6 +50,7 @@ func NewWatcher(registry *Registry) *Watcher {
 		registry:     registry,
 		pollInterval: 5 * time.Second,
 		fileTimes:    make(map[string]time.Time),
+		newTicker:    newRealTicker,
 	}
 }
 
@@ -51,6 +70,9 @@ func (w *Watcher) Start() error {
 	if w.running {
 		w.mu.Unlock()
 		return nil // Already running
+	}
+	if w.newTicker == nil {
+		w.newTicker = newRealTicker
 	}
 	w.running = true
 	w.stopCh = make(chan struct{})
@@ -94,16 +116,17 @@ func (w *Watcher) poll() {
 
 	w.mu.Lock()
 	interval := w.pollInterval
+	newTicker := w.newTicker
 	w.mu.Unlock()
 
-	ticker := time.NewTicker(interval)
+	ticker := newTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-w.stopCh:
 			return
-		case <-ticker.C:
+		case <-ticker.Channel():
 			if w.checkForChanges() {
 				w.registry.Refresh()
 			}
