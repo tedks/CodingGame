@@ -39,6 +39,7 @@ func TestClaudeHarness_RealCLI_SimplePrompt(t *testing.T) {
 
 	config := harness.NewConfig(workingDir).
 		WithModel("sonnet")
+	config.Verbose = true
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -126,6 +127,7 @@ func TestClaudeHarness_RealCLI_EventTypes(t *testing.T) {
 
 	h := New().(*ClaudeHarness)
 	config := harness.NewConfig(workingDir).WithModel("sonnet")
+	config.Verbose = true
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
