@@ -7,6 +7,9 @@ import (
 )
 
 func TestNewConnection(t *testing.T) {
+	// ID format uses unit separator (0x1F) to avoid collision with paths containing colons
+	sep := string([]byte{0x1F})
+
 	tests := []struct {
 		name     string
 		from     string
@@ -21,7 +24,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "pkg/utils.go",
 			to:       "cmd/main.go",
 			typ:      TypeImport,
-			wantID:   "pkg/utils.go:cmd/main.go:import",
+			wantID:   "pkg/utils.go" + sep + "cmd/main.go" + sep + "import",
 			wantFrom: "pkg/utils.go",
 			wantTo:   "cmd/main.go",
 		},
@@ -30,7 +33,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "pkg\\utils.go",
 			to:       "cmd\\main.go",
 			typ:      TypeImport,
-			wantID:   "pkg/utils.go:cmd/main.go:import",
+			wantID:   "pkg/utils.go" + sep + "cmd/main.go" + sep + "import",
 			wantFrom: "pkg/utils.go",
 			wantTo:   "cmd/main.go",
 		},
@@ -39,7 +42,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "pkg/foo.go",
 			to:       "pkg/foo.go",
 			typ:      TypeCall,
-			wantID:   "pkg/foo.go:pkg/foo.go:call",
+			wantID:   "pkg/foo.go" + sep + "pkg/foo.go" + sep + "call",
 			wantFrom: "pkg/foo.go",
 			wantTo:   "pkg/foo.go",
 		},
@@ -48,7 +51,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "models/base.go",
 			to:       "models/user.go",
 			typ:      TypeInheritance,
-			wantID:   "models/base.go:models/user.go:inheritance",
+			wantID:   "models/base.go" + sep + "models/user.go" + sep + "inheritance",
 			wantFrom: "models/base.go",
 			wantTo:   "models/user.go",
 		},
