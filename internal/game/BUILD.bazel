@@ -31,14 +31,21 @@ go_library(
 go_test(
     name = "game_test",
     srcs = [
+        "chaos_test.go",
+        "determinism_test.go",
+        "event_ordering_test.go",
         "game_test.go",
         "harness_integration_test.go",
+        "harness_lifecycle_test.go",
+        "input_routing_test.go",
         "integration_test.go",
     ],
     embed = [":game"],
     deps = [
         "//internal/harness",
+        "//internal/input",
         "//internal/testutil",
         "//internal/ui",
+        "@com_github_hajimehoshi_ebiten_v2//:ebiten",
     ],
 )

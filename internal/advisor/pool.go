@@ -81,9 +81,10 @@ func (p *Pool) Add(advisor *Advisor) error {
 
 	p.advisors[id] = advisor
 
-	// Notify listeners synchronously (they should be fast callbacks)
+	// Notify listeners synchronously with panic recovery
+	// Listeners should be fast callbacks, but panics shouldn't crash the pool
 	for _, listener := range p.listeners {
-		listener.OnAdvisorAdded(advisor)
+		p.safeNotifyAdded(listener, advisor)
 	}
 
 	return nil
@@ -102,9 +103,10 @@ func (p *Pool) Remove(id string) error {
 
 	delete(p.advisors, id)
 
-	// Notify listeners synchronously (they should be fast callbacks)
+	// Notify listeners synchronously with panic recovery
+	// Listeners should be fast callbacks, but panics shouldn't crash the pool
 	for _, listener := range p.listeners {
-		listener.OnAdvisorRemoved(id)
+		p.safeNotifyRemoved(listener, id)
 	}
 
 	return nil
@@ -353,11 +355,36 @@ func (p *Pool) Clear() {
 
 	for id := range p.advisors {
 		delete(p.advisors, id)
-		// Call listeners synchronously (they should be fast callbacks)
+		// Notify listeners synchronously with panic recovery
+		// Listeners should be fast callbacks, but panics shouldn't crash the pool
 		for _, listener := range p.listeners {
-			listener.OnAdvisorRemoved(id)
+			p.safeNotifyRemoved(listener, id)
 		}
 	}
+}
+
+// safeNotifyAdded calls listener.OnAdvisorAdded with panic recovery.
+// This prevents a misbehaving listener from crashing the pool.
+func (p *Pool) safeNotifyAdded(listener PoolListener, advisor *Advisor) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Log but don't crash - listeners shouldn't break the pool
+			// In production, this could be logged to an error channel
+		}
+	}()
+	listener.OnAdvisorAdded(advisor)
+}
+
+// safeNotifyRemoved calls listener.OnAdvisorRemoved with panic recovery.
+// This prevents a misbehaving listener from crashing the pool.
+func (p *Pool) safeNotifyRemoved(listener PoolListener, advisorID string) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Log but don't crash - listeners shouldn't break the pool
+			// In production, this could be logged to an error channel
+		}
+	}()
+	listener.OnAdvisorRemoved(advisorID)
 }
 
 // SetHarnessRegistry sets the harness registry for creating advisor harnesses.

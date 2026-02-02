@@ -3,6 +3,7 @@ package advisor
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"sync"
 	"time"
 )
 
@@ -49,7 +50,12 @@ const (
 )
 
 // Insight represents a piece of advice from an advisor
+//
+// Thread-safety: All methods on Insight are safe for concurrent use.
+// The mutex protects all state modifications and reads.
 type Insight struct {
+	mu sync.RWMutex // Protects all fields below
+
 	// ID is a unique identifier for this insight
 	ID string
 	// AdvisorID identifies which advisor generated this
@@ -113,6 +119,8 @@ func generateInsightID() string {
 
 // WithLocation adds file location information to the insight
 func (i *Insight) WithLocation(filePath string, line, column int) *Insight {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.FilePath = filePath
 	i.Line = line
 	i.Column = column
@@ -121,6 +129,8 @@ func (i *Insight) WithLocation(filePath string, line, column int) *Insight {
 
 // WithSuggestion adds a suggested fix to the insight
 func (i *Insight) WithSuggestion(suggestion, codeBefore, codeAfter string) *Insight {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.Suggestion = suggestion
 	i.CodeBefore = codeBefore
 	i.CodeAfter = codeAfter
@@ -129,40 +139,68 @@ func (i *Insight) WithSuggestion(suggestion, codeBefore, codeAfter string) *Insi
 
 // Accept marks the insight as accepted by the user
 func (i *Insight) Accept() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.State = InsightStateAccepted
 	i.StateTime = time.Now()
 }
 
 // Reject marks the insight as rejected by the user
 func (i *Insight) Reject() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.State = InsightStateRejected
 	i.StateTime = time.Now()
 }
 
 // Dismiss marks the insight as dismissed without explicit action
 func (i *Insight) Dismiss() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.State = InsightStateDismissed
 	i.StateTime = time.Now()
 }
 
 // IsPending returns true if the insight is awaiting user action
 func (i *Insight) IsPending() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	return i.State == InsightStatePending
 }
 
 // IsResolved returns true if the user has acted on the insight
 func (i *Insight) IsResolved() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	return i.State == InsightStateAccepted || i.State == InsightStateRejected || i.State == InsightStateDismissed
 }
 
 // HasLocation returns true if the insight has file location information
 func (i *Insight) HasLocation() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	return i.FilePath != "" && i.Line > 0
 }
 
 // HasSuggestion returns true if the insight has a suggested fix
 func (i *Insight) HasSuggestion() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	return i.Suggestion != ""
+}
+
+// GetState returns the current state (thread-safe)
+func (i *Insight) GetState() InsightState {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.State
+}
+
+// GetStateTime returns when the state was last changed (thread-safe)
+func (i *Insight) GetStateTime() time.Time {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.StateTime
 }
 
 // InsightBuilder provides a fluent interface for creating insights
@@ -225,9 +263,28 @@ func (b *InsightBuilder) Suggestion(suggestion, codeBefore, codeAfter string) *I
 	return b
 }
 
-// Build finalizes and returns the insight
+// Build finalizes and returns the insight.
+// The builder creates a deep copy to allow safe reuse of the builder.
 func (b *InsightBuilder) Build() *Insight {
-	return b.insight
+	// Clone the insight to prevent corruption if builder is reused
+	result := &Insight{
+		ID:          generateInsightID(), // Fresh ID for each build
+		AdvisorID:   b.insight.AdvisorID,
+		Timestamp:   time.Now(),
+		Title:       b.insight.Title,
+		Description: b.insight.Description,
+		Severity:    b.insight.Severity,
+		Category:    b.insight.Category,
+		FilePath:    b.insight.FilePath,
+		Line:        b.insight.Line,
+		Column:      b.insight.Column,
+		Suggestion:  b.insight.Suggestion,
+		CodeBefore:  b.insight.CodeBefore,
+		CodeAfter:   b.insight.CodeAfter,
+		State:       InsightStatePending,
+		StateTime:   time.Now(),
+	}
+	return result
 }
 
 // InsightFilter provides methods for filtering insights
