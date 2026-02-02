@@ -32,6 +32,7 @@ func TestSystemTests(t *testing.T) {
 		t.Run("PlusKeyZoomsIn", testNavigationPlusKeyZoomsIn)
 		t.Run("MinusKeyZoomsOut", testNavigationMinusKeyZoomsOut)
 		t.Run("HeldKeysContinuePanning", testNavigationHeldKeys)
+		t.Run("GoToActionFires", testGoToActionFires)
 	})
 
 	// Mode tests
@@ -42,6 +43,7 @@ func TestSystemTests(t *testing.T) {
 		t.Run("ModeTransitionsCorrectly", testModeTransitions)
 		t.Run("ColonNotEnterCommandMode", testModesColonBehavior)
 		t.Run("ModeIndicatorUpdates", testModeIndicatorUpdates)
+		t.Run("SelectMultiNotImplemented", testVisualModeSelectMultiNotImplemented)
 	})
 
 	// Focus tests
@@ -61,6 +63,8 @@ func TestSystemTests(t *testing.T) {
 		t.Run("Key3SwitchesToUnit", testViews3SwitchesToUnit)
 		t.Run("Key4SwitchesToTech", testViews4SwitchesToTech)
 		t.Run("Key5SwitchesToMission", testViews5SwitchesToMission)
+		t.Run("Key6SwitchesToProduction", testViews6SwitchesToProduction)
+		t.Run("Key7SwitchesToMultiAgent", testViews7SwitchesToMultiAgent)
 		t.Run("TTogglesBetweenViews", testViewsTToggle)
 	})
 
@@ -117,6 +121,25 @@ func TestSystemTests(t *testing.T) {
 		t.Run("SubmitFlow", testConversationPanelSubmitFlow)
 		t.Run("HeightAnimation", testConversationPanelHeightAnimation)
 		t.Run("GameSceneDragUsesInputSource", testGameScenePromptPanelDragUsesInputSource)
+	})
+
+	// Emacs-style keybinding tests
+	t.Run("Emacs", func(t *testing.T) {
+		t.Run("CtrlPMovesUp", testEmacsCtrlPMovesUp)
+		t.Run("CtrlNMovesDown", testEmacsCtrlNMovesDown)
+		t.Run("CtrlBMovesLeft", testEmacsCtrlBMovesLeft)
+		t.Run("CtrlFMovesRight", testEmacsCtrlFMovesRight)
+		t.Run("CtrlGExitsMode", testEmacsCtrlGExitsMode)
+		t.Run("CtrlSSearches", testEmacsCtrlSSearches)
+	})
+
+	// Start screen tests
+	t.Run("StartScreen", func(t *testing.T) {
+		t.Run("NavigatesWithJ", testStartScreenNavigatesWithJ)
+		t.Run("NavigatesWithK", testStartScreenNavigatesWithK)
+		t.Run("EnterAdvancesState", testStartScreenEnterAdvancesState)
+		t.Run("EscapeGoesBack", testStartScreenEscapeGoesBack)
+		t.Run("ArrowKeysNavigate", testStartScreenArrowKeysNavigate)
 	})
 }
 

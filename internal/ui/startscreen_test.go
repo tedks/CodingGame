@@ -2,6 +2,9 @@ package ui
 
 import (
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/tedks/CodingGame/internal/testutil"
 )
 
 func TestNewStartScreen(t *testing.T) {

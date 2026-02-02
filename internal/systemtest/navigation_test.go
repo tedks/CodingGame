@@ -242,3 +242,32 @@ func testNavigationHeldKeys(t *testing.T) {
 
 	runScenarioOnHandler(t, h, source, scenario)
 }
+
+func testGoToActionFires(t *testing.T) {
+	source := testutil.NewTestInputSource()
+	h := testHandler(source)
+
+	// Verify initial state
+	assertMode(t, h, input.ModeNormal)
+
+	// Track if GoTo action fires
+	actionFired := false
+	h.OnAction(func(action input.Action) {
+		if action == input.ActionGoTo {
+			actionFired = true
+		}
+	})
+
+	// Press G key
+	source.QueueKeyPress(ebiten.KeyG)
+	source.AdvanceFrame()
+	h.Update()
+
+	// ActionGoTo should have fired
+	if !actionFired {
+		t.Error("expected ActionGoTo to fire on G key press")
+	}
+
+	// NOTE: ActionGoTo fires but has no built-in handler behavior yet
+	// It relies on the game scene to handle navigation
+}

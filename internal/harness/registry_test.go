@@ -2,6 +2,8 @@ package harness
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -314,5 +316,211 @@ func TestMockHarnessLifecycle(t *testing.T) {
 	}
 	if h.IsRunning() {
 		t.Error("Should not be running after Stop()")
+	}
+}
+
+// --- P3 Registry Concurrency Tests ---
+
+// TestRegistry_ConcurrentRegistration tests concurrent Register calls
+func TestRegistry_ConcurrentRegistration(t *testing.T) {
+	r := NewRegistry()
+
+	const numGoroutines = 20
+	var wg sync.WaitGroup
+
+	// Register different harnesses concurrently
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			name := fmt.Sprintf("mock-%d", n)
+			r.Register(name, mockHarnessFactory)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all registrations succeeded
+	available := r.Available()
+	for i := 0; i < numGoroutines; i++ {
+		name := fmt.Sprintf("mock-%d", i)
+		found := false
+		for _, n := range available {
+			if n == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Harness %q not found after concurrent registration", name)
+		}
+	}
+}
+
+// TestRegistry_ConcurrentCreate tests concurrent Create calls
+func TestRegistry_ConcurrentCreate(t *testing.T) {
+	r := NewRegistry()
+	r.Register("mock", mockHarnessFactory)
+
+	const numGoroutines = 50
+	var wg sync.WaitGroup
+	harnesses := make(chan Harness, numGoroutines)
+	errors := make(chan error, numGoroutines)
+
+	// Create harnesses concurrently
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h, err := r.Create("mock")
+			if err != nil {
+				errors <- err
+				return
+			}
+			harnesses <- h
+		}()
+	}
+
+	wg.Wait()
+	close(harnesses)
+	close(errors)
+
+	// Check for errors
+	for err := range errors {
+		t.Errorf("Create() error: %v", err)
+	}
+
+	// Count successful creations
+	count := 0
+	for h := range harnesses {
+		if h == nil {
+			t.Error("Create() returned nil harness")
+		}
+		count++
+	}
+
+	if count != numGoroutines {
+		t.Errorf("Expected %d harnesses, got %d", numGoroutines, count)
+	}
+}
+
+// TestRegistry_ConcurrentModification tests Register during Create
+func TestRegistry_ConcurrentModification(t *testing.T) {
+	r := NewRegistry()
+
+	// Start with one registered harness
+	r.Register("initial", mockHarnessFactory)
+
+	var wg sync.WaitGroup
+	const iterations = 30
+
+	// Concurrently register and create
+	for i := 0; i < iterations; i++ {
+		wg.Add(2)
+
+		// Register new harnesses
+		go func(n int) {
+			defer wg.Done()
+			name := fmt.Sprintf("dynamic-%d", n)
+			r.Register(name, mockHarnessFactory)
+		}(i)
+
+		// Try to create existing harness
+		go func() {
+			defer wg.Done()
+			_, _ = r.Create("initial") // May fail if registry is being modified
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify no panic occurred and initial is still available
+	if !r.IsRegistered("initial") {
+		t.Error("Initial harness should still be registered")
+	}
+}
+
+// TestRegistry_ConcurrentRead tests concurrent read operations
+func TestRegistry_ConcurrentRead(t *testing.T) {
+	r := NewRegistry()
+	r.Register("test1", mockHarnessFactory)
+	r.Register("test2", mockHarnessFactory)
+	r.Register("test3", mockHarnessFactory)
+
+	var wg sync.WaitGroup
+	const numGoroutines = 100
+
+	// Concurrent reads should be safe
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(5)
+
+		go func() {
+			defer wg.Done()
+			_ = r.Available()
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = r.IsRegistered("test1")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = r.Models("claude-code")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = r.DefaultModel("claude-code")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = r.AllInfo()
+		}()
+	}
+
+	wg.Wait()
+	// Test passes if no race condition or panic
+}
+
+// TestRegistry_RegisterWithDefinitionConcurrent tests concurrent RegisterWithDefinition
+func TestRegistry_RegisterWithDefinitionConcurrent(t *testing.T) {
+	r := NewRegistry()
+
+	var wg sync.WaitGroup
+	const numGoroutines = 20
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			def := HarnessDefinition{
+				Name:         fmt.Sprintf("custom-%d", n),
+				DisplayName:  fmt.Sprintf("Custom %d", n),
+				DefaultModel: "default",
+				Models: []ModelDefinition{
+					{ID: "default", Name: "Default", Default: true},
+				},
+			}
+			r.RegisterWithDefinition(def, mockHarnessFactory)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify all definitions were registered
+	for i := 0; i < numGoroutines; i++ {
+		name := fmt.Sprintf("custom-%d", i)
+		if !r.IsRegistered(name) {
+			t.Errorf("Harness %q should be registered", name)
+		}
+		def, ok := r.Definition(name)
+		if !ok {
+			t.Errorf("Definition for %q should exist", name)
+		}
+		if def.DisplayName != fmt.Sprintf("Custom %d", i) {
+			t.Errorf("DisplayName = %q, want Custom %d", def.DisplayName, i)
+		}
 	}
 }
