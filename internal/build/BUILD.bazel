@@ -18,8 +18,12 @@ go_test(
         "adapter_test.go",
         "bazel_test.go",
         "cargo_test.go",
+        "chaos_test.go",
+        "consistency_test.go",
+        "fuzz_test.go",
         "integration_test.go",
         "npm_test.go",
+        "property_test.go",
     ],
     embed = [":build"],
 )
