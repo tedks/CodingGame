@@ -1,9 +1,13 @@
 package advisor
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tedks/CodingGame/internal/harness"
 )
 
 // Integration tests for the advisor system
@@ -494,5 +498,321 @@ func TestIntegration_PoolMetricsAggregation(t *testing.T) {
 	}
 	if metrics.RejectedInsights != 1 {
 		t.Errorf("RejectedInsights = %d, want 1", metrics.RejectedInsights)
+	}
+}
+
+// RunAdvisor integration tests
+
+// TestIntegration_RunAdvisor_HappyPath tests the full RunAdvisor flow with a mock harness
+func TestIntegration_RunAdvisor_HappyPath(t *testing.T) {
+	// Create a temp directory for working dir
+	tmpDir := t.TempDir()
+
+	// Setup mock harness
+	mock := harness.NewMockHarness()
+	registry := harness.NewRegistry()
+	registry.Register("mock", func() harness.Harness { return mock })
+
+	// Setup pool
+	pool := NewPool()
+	pool.SetHarnessRegistry(registry)
+	pool.SetMainHarness("mock")
+	pool.SetWorkingDir(tmpDir)
+
+	if err := pool.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer pool.Stop()
+
+	// Create advisor
+	advisor := New(Config{
+		ID:           "test",
+		Name:         "Test Advisor",
+		SystemPrompt: "Analyze code for issues",
+		Trigger:      TriggerManual,
+	}, 0, 0)
+
+	if err := pool.Add(advisor); err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	// Simulate turn complete in background
+	go func() {
+		// Wait a bit for SendPrompt to be called
+		time.Sleep(20 * time.Millisecond)
+		mock.SimulateTurnComplete()
+	}()
+
+	// Run advisor
+	ctx := context.Background()
+	err := pool.RunAdvisor(ctx, advisor, []string{"file1.go", "file2.go"})
+
+	// Verify
+	if err != nil {
+		t.Fatalf("RunAdvisor() error = %v", err)
+	}
+
+	// Check prompt was sent
+	if mock.PromptCount() != 1 {
+		t.Errorf("PromptCount() = %d, want 1", mock.PromptCount())
+	}
+
+	// Check advisor state is idle after completion
+	if advisor.State() != StateIdle {
+		t.Errorf("State() = %v, want %v", advisor.State(), StateIdle)
+	}
+
+	// Check metrics were updated
+	metrics := advisor.Metrics()
+	if metrics.TotalRuns != 1 {
+		t.Errorf("TotalRuns = %d, want 1", metrics.TotalRuns)
+	}
+	if metrics.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", metrics.SuccessCount)
+	}
+}
+
+// TestIntegration_RunAdvisor_NoRegistry tests RunAdvisor returns error when registry not configured
+func TestIntegration_RunAdvisor_NoRegistry(t *testing.T) {
+	pool := NewPool()
+	if err := pool.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer pool.Stop()
+
+	advisor := New(Config{
+		ID:           "test",
+		Name:         "Test",
+		SystemPrompt: "prompt",
+		Trigger:      TriggerManual,
+	}, 0, 0)
+	pool.Add(advisor)
+
+	err := pool.RunAdvisor(context.Background(), advisor, nil)
+	if err == nil {
+		t.Error("RunAdvisor() expected error when registry not configured")
+	}
+	if !strings.Contains(err.Error(), "registry not configured") {
+		t.Errorf("RunAdvisor() error = %v, want error containing 'registry not configured'", err)
+	}
+}
+
+// TestIntegration_RunAdvisor_NoHarness tests RunAdvisor returns error when no harness configured
+func TestIntegration_RunAdvisor_NoHarness(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	registry := harness.NewRegistry()
+	pool := NewPool()
+	pool.SetHarnessRegistry(registry)
+	pool.SetWorkingDir(tmpDir)
+	// Note: NOT setting main harness
+
+	if err := pool.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer pool.Stop()
+
+	// Advisor with no harness configured
+	advisor := New(Config{
+		ID:           "test",
+		Name:         "Test",
+		SystemPrompt: "prompt",
+		Trigger:      TriggerManual,
+		// No HarnessName set
+	}, 0, 0)
+	pool.Add(advisor)
+
+	err := pool.RunAdvisor(context.Background(), advisor, nil)
+	if err == nil {
+		t.Error("RunAdvisor() expected error when no harness configured")
+	}
+	if !strings.Contains(err.Error(), "no harness configured") {
+		t.Errorf("RunAdvisor() error = %v, want error containing 'no harness configured'", err)
+	}
+}
+
+// TestIntegration_RunAdvisor_ContextCancellation tests RunAdvisor handles context cancellation
+func TestIntegration_RunAdvisor_ContextCancellation(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mock := harness.NewMockHarness()
+	registry := harness.NewRegistry()
+	registry.Register("mock", func() harness.Harness { return mock })
+
+	pool := NewPool()
+	pool.SetHarnessRegistry(registry)
+	pool.SetMainHarness("mock")
+	pool.SetWorkingDir(tmpDir)
+
+	if err := pool.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer pool.Stop()
+
+	advisor := New(Config{
+		ID:           "test",
+		Name:         "Test",
+		SystemPrompt: "prompt",
+		Trigger:      TriggerManual,
+	}, 0, 0)
+	pool.Add(advisor)
+
+	// Create cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel shortly after start
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	err := pool.RunAdvisor(ctx, advisor, []string{"file.go"})
+
+	// Should return context error
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("RunAdvisor() error = %v, want context.Canceled", err)
+	}
+
+	// Advisor should be in error state or have recorded the error
+	if advisor.LastError() == nil {
+		t.Error("LastError() should be set after cancellation")
+	}
+}
+
+// TestIntegration_RunAdvisorAsync_StopWaits tests that Pool.Stop() waits for async advisors
+func TestIntegration_RunAdvisorAsync_StopWaits(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mock := harness.NewMockHarness()
+	registry := harness.NewRegistry()
+	registry.Register("mock", func() harness.Harness { return mock })
+
+	pool := NewPool()
+	pool.SetHarnessRegistry(registry)
+	pool.SetMainHarness("mock")
+	pool.SetWorkingDir(tmpDir)
+
+	if err := pool.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	advisor := New(Config{
+		ID:           "test",
+		Name:         "Test",
+		SystemPrompt: "prompt",
+		Trigger:      TriggerManual,
+	}, 0, 0)
+	pool.Add(advisor)
+
+	// Start async advisor
+	pool.RunAdvisorAsync(context.Background(), advisor, []string{"file.go"})
+
+	// Wait a bit for async to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Stop should wait for async advisor
+	done := make(chan struct{})
+	go func() {
+		pool.Stop()
+		close(done)
+	}()
+
+	// Simulate completion
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		mock.SimulateTurnComplete()
+	}()
+
+	select {
+	case <-done:
+		// Expected: Stop completed after advisor finished
+	case <-time.After(time.Second):
+		t.Fatal("Stop() blocked too long, should have completed after advisor finished")
+	}
+}
+
+// TestIntegration_RunAdvisorAsync_NotRunning tests that RunAdvisorAsync does nothing when pool not running
+func TestIntegration_RunAdvisorAsync_NotRunning(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mock := harness.NewMockHarness()
+	registry := harness.NewRegistry()
+	registry.Register("mock", func() harness.Harness { return mock })
+
+	pool := NewPool()
+	pool.SetHarnessRegistry(registry)
+	pool.SetMainHarness("mock")
+	pool.SetWorkingDir(tmpDir)
+	// Note: NOT starting pool
+
+	advisor := New(Config{
+		ID:           "test",
+		Name:         "Test",
+		SystemPrompt: "prompt",
+		Trigger:      TriggerManual,
+	}, 0, 0)
+	pool.Add(advisor)
+
+	// This should do nothing since pool not running
+	pool.RunAdvisorAsync(context.Background(), advisor, []string{"file.go"})
+
+	// Wait a bit
+	time.Sleep(50 * time.Millisecond)
+
+	// Mock should not have received any prompts
+	if mock.PromptCount() != 0 {
+		t.Errorf("PromptCount() = %d, want 0 (pool not running)", mock.PromptCount())
+	}
+}
+
+// TestIntegration_RunAdvisor_AdvisorSpecificHarness tests using advisor-specific harness
+func TestIntegration_RunAdvisor_AdvisorSpecificHarness(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create two different mock harnesses
+	mainMock := harness.NewMockHarness()
+	advisorMock := harness.NewMockHarness()
+
+	registry := harness.NewRegistry()
+	registry.Register("main-harness", func() harness.Harness { return mainMock })
+	registry.Register("advisor-harness", func() harness.Harness { return advisorMock })
+
+	pool := NewPool()
+	pool.SetHarnessRegistry(registry)
+	pool.SetMainHarness("main-harness")
+	pool.SetWorkingDir(tmpDir)
+
+	if err := pool.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer pool.Stop()
+
+	// Advisor with its own harness
+	advisor := New(Config{
+		ID:           "custom",
+		Name:         "Custom Harness Advisor",
+		SystemPrompt: "prompt",
+		Trigger:      TriggerManual,
+		HarnessName:  "advisor-harness", // Use specific harness
+	}, 0, 0)
+	pool.Add(advisor)
+
+	// Complete analysis in background
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		advisorMock.SimulateTurnComplete()
+	}()
+
+	err := pool.RunAdvisor(context.Background(), advisor, []string{"file.go"})
+	if err != nil {
+		t.Fatalf("RunAdvisor() error = %v", err)
+	}
+
+	// Should have used advisor-specific harness, not main
+	if mainMock.PromptCount() != 0 {
+		t.Errorf("Main harness PromptCount() = %d, want 0", mainMock.PromptCount())
+	}
+	if advisorMock.PromptCount() != 1 {
+		t.Errorf("Advisor harness PromptCount() = %d, want 1", advisorMock.PromptCount())
 	}
 }
