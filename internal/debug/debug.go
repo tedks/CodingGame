@@ -17,7 +17,10 @@
 package debug
 
 import (
+	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -50,6 +53,40 @@ func (s State) String() string {
 		return "Unknown"
 	}
 }
+
+// ValidTransitions defines the allowed state transitions.
+var ValidTransitions = map[State][]State{
+	StateIdle:    {StateRunning, StateStopped},
+	StateRunning: {StatePaused, StateStopped},
+	StatePaused:  {StateRunning, StateStopped},
+	StateStopped: {},
+}
+
+// ErrInvalidTransition is returned when an invalid state transition is attempted.
+var ErrInvalidTransition = errors.New("invalid state transition")
+
+// ValidateTransition checks if a state transition is valid.
+func ValidateTransition(from, to State) error {
+	if from == to {
+		return nil
+	}
+	for _, valid := range ValidTransitions[from] {
+		if valid == to {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: cannot transition from %s to %s", ErrInvalidTransition, from, to)
+}
+
+// HandlerID uniquely identifies an event handler.
+type HandlerID int64
+
+type handlerEntry struct {
+	id      HandlerID
+	handler EventHandler
+}
+
+var handlerIDCounter atomic.Int64
 
 // Session represents an active debugging session.
 //
@@ -84,8 +121,8 @@ type Session struct {
 	breakpoints map[string]*Breakpoint   // Keyed by ID
 	byLocation  map[string][]*Breakpoint // Indexed by file:line
 
-	// Event handlers
-	handlers []EventHandler
+	// Event handlers with IDs for removal
+	handlers []handlerEntry
 }
 
 // SessionSnapshot is an immutable, point-in-time view of session state.
@@ -118,7 +155,7 @@ func NewSession(id, language, targetDir string) *Session {
 		dataFlows:   make([]*DataFlow, 0),
 		breakpoints: make(map[string]*Breakpoint),
 		byLocation:  make(map[string][]*Breakpoint),
-		handlers:    make([]EventHandler, 0),
+		handlers:    make([]handlerEntry, 0),
 	}
 }
 
@@ -164,8 +201,7 @@ func (s *Session) SetState(state State) {
 	s.mu.Lock()
 	oldState := s.state
 	s.state = state
-	handlers := make([]EventHandler, len(s.handlers))
-	copy(handlers, s.handlers)
+	handlers := s.copyHandlers()
 	s.mu.Unlock()
 
 	if oldState != state {
@@ -182,6 +218,15 @@ func (s *Session) SetState(state State) {
 			h(event)
 		}
 	}
+}
+
+// copyHandlers returns handlers as EventHandler slice. Must hold mu.
+func (s *Session) copyHandlers() []EventHandler {
+	handlers := make([]EventHandler, len(s.handlers))
+	for i, e := range s.handlers {
+		handlers[i] = e.handler
+	}
+	return handlers
 }
 
 // Frames returns the current call stack (top of stack first).
@@ -206,8 +251,7 @@ func (s *Session) CurrentFrame() *Frame {
 func (s *Session) SetFrames(frames []*Frame) {
 	s.mu.Lock()
 	s.frames = cloneFrames(frames)
-	handlers := make([]EventHandler, len(s.handlers))
-	copy(handlers, s.handlers)
+	handlers := s.copyHandlers()
 	frameCount := len(s.frames)
 	s.mu.Unlock()
 
@@ -224,11 +268,34 @@ func (s *Session) SetFrames(frames []*Frame) {
 	}
 }
 
-// AddHandler registers an event handler for debug events.
-func (s *Session) AddHandler(handler EventHandler) {
+// AddHandler registers an event handler. Returns ID for removal.
+func (s *Session) AddHandler(handler EventHandler) HandlerID {
+	id := HandlerID(handlerIDCounter.Add(1))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.handlers = append(s.handlers, handler)
+	s.handlers = append(s.handlers, handlerEntry{id: id, handler: handler})
+	return id
+}
+
+// RemoveHandler removes an event handler by ID.
+func (s *Session) RemoveHandler(id HandlerID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, e := range s.handlers {
+		if e.id == id {
+			s.handlers[i] = s.handlers[len(s.handlers)-1]
+			s.handlers = s.handlers[:len(s.handlers)-1]
+			return true
+		}
+	}
+	return false
+}
+
+// HandlerCount returns the number of registered handlers.
+func (s *Session) HandlerCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.handlers)
 }
 
 // AddBreakpoint adds a breakpoint to the session.
@@ -237,8 +304,7 @@ func (s *Session) AddBreakpoint(bp *Breakpoint) {
 	s.breakpoints[bp.ID] = bp
 	locKey := bp.locationKey()
 	s.byLocation[locKey] = append(s.byLocation[locKey], bp)
-	handlers := make([]EventHandler, len(s.handlers))
-	copy(handlers, s.handlers)
+	handlers := s.copyHandlers()
 	s.mu.Unlock()
 
 	event := &Event{
@@ -274,8 +340,7 @@ func (s *Session) RemoveBreakpoint(id string) bool {
 			break
 		}
 	}
-	handlers := make([]EventHandler, len(s.handlers))
-	copy(handlers, s.handlers)
+	handlers := s.copyHandlers()
 	s.mu.Unlock()
 
 	event := &Event{
@@ -325,8 +390,7 @@ func (s *Session) AllBreakpoints() []*Breakpoint {
 func (s *Session) RecordDataFlow(df *DataFlow) {
 	s.mu.Lock()
 	s.dataFlows = append(s.dataFlows, df)
-	handlers := make([]EventHandler, len(s.handlers))
-	copy(handlers, s.handlers)
+	handlers := s.copyHandlers()
 	s.mu.Unlock()
 
 	event := &Event{
