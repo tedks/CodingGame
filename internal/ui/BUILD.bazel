@@ -26,6 +26,7 @@ go_test(
         "menu_test.go",
         "prompt_test.go",
         "scene_test.go",
+        "scene_transition_test.go",
         "startscreen_test.go",
     ],
     embed = [":ui"],

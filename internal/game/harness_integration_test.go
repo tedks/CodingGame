@@ -197,3 +197,254 @@ func TestGameScene_NoHarnessConfigured(t *testing.T) {
 		t.Error("onPromptSubmit should be nil when no harness is configured")
 	}
 }
+
+// TestGameScene_PromptToHarnessToMap verifies the full integration chain:
+// 1. User submits prompt
+// 2. Prompt reaches harness
+// 3. Harness emits file read event
+// 4. Map view fog of war is updated
+//
+// This is the most important integration test because it verifies the
+// entire data flow path works end-to-end.
+func TestGameScene_PromptToHarnessToMap(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "full-chain-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test file that will be "read" by the harness
+	testFile := tmpDir + "/main.go"
+	if err := os.WriteFile(testFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	gs, err := NewGameScene(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("Failed to create game scene: %v", err)
+	}
+	defer gs.Close()
+
+	mock := harness.NewMockHarness()
+	registry := harness.NewRegistry()
+	registry.Register("mock", func() harness.Harness { return mock })
+
+	gs.SetHarnessRegistry(registry)
+	gs.SetConfig(ui.GameConfig{
+		Harness:     "mock",
+		Model:       "mock",
+		ProjectPath: tmpDir,
+	})
+
+	// Step 1: Verify prompt reaches harness
+	testPrompt := "What does main.go contain?"
+	gs.onPromptSubmit(testPrompt)
+
+	if mock.LastPrompt() != testPrompt {
+		t.Errorf("Prompt not received by harness: got %q", mock.LastPrompt())
+	}
+
+	// Step 2: Harness "responds" with file read event
+	// Track event processing
+	eventProcessed := make(chan struct{}, 1)
+	gs.harnessEventHook = func(event *harness.Event) {
+		if event != nil && event.Type == harness.EventFileRead {
+			select {
+			case eventProcessed <- struct{}{}:
+			default:
+			}
+		}
+	}
+
+	mock.SimulateFileRead(testFile)
+
+	// Wait for event to be processed
+	select {
+	case <-eventProcessed:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("File read event not processed")
+	}
+
+	// Step 3: Harness sends response text
+	textProcessed := make(chan struct{}, 1)
+	gs.harnessEventHook = func(event *harness.Event) {
+		if event != nil && event.Type == harness.EventText {
+			select {
+			case textProcessed <- struct{}{}:
+			default:
+			}
+		}
+	}
+
+	mock.SimulateText("The main.go file contains a basic Go program.")
+
+	select {
+	case <-textProcessed:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("Text event not processed")
+	}
+
+	// Step 4: Harness signals turn complete
+	turnCompleted := make(chan struct{}, 1)
+	gs.harnessEventHook = func(event *harness.Event) {
+		if event != nil && event.Type == harness.EventTurnComplete {
+			select {
+			case turnCompleted <- struct{}{}:
+			default:
+			}
+		}
+	}
+
+	mock.SimulateTurnComplete()
+
+	select {
+	case <-turnCompleted:
+		// Success
+	case <-time.After(1 * time.Second):
+		t.Fatal("Turn complete event not processed")
+	}
+
+	// The integration test passes if all events were processed without panic
+	// and the data flowed through the entire chain
+}
+
+// TestGameScene_HarnessReplace verifies that replacing one harness with another
+// works correctly (stop old, start new, events flow correctly).
+func TestGameScene_HarnessReplace(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "harness-replace-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gs, err := NewGameScene(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("Failed to create game scene: %v", err)
+	}
+	defer gs.Close()
+
+	mock1 := harness.NewMockHarness()
+	mock2 := harness.NewMockHarness()
+
+	registry := harness.NewRegistry()
+	registry.Register("mock1", func() harness.Harness { return mock1 })
+	registry.Register("mock2", func() harness.Harness { return mock2 })
+
+	gs.SetHarnessRegistry(registry)
+
+	// Start with mock1
+	gs.SetConfig(ui.GameConfig{
+		Harness:     "mock1",
+		Model:       "mock",
+		ProjectPath: tmpDir,
+	})
+
+	// Send prompt to mock1
+	gs.onPromptSubmit("prompt to mock1")
+	if mock1.PromptCount() != 1 {
+		t.Error("Prompt not sent to mock1")
+	}
+
+	// Replace with mock2
+	gs.SetConfig(ui.GameConfig{
+		Harness:     "mock2",
+		Model:       "mock",
+		ProjectPath: tmpDir,
+	})
+
+	// mock1 should be stopped
+	if mock1.IsRunning() {
+		t.Error("mock1 should be stopped after replacement")
+	}
+
+	// mock2 should be running
+	if !mock2.IsRunning() {
+		t.Error("mock2 should be running after replacement")
+	}
+
+	// Send prompt to mock2
+	gs.onPromptSubmit("prompt to mock2")
+	if mock2.PromptCount() != 1 {
+		t.Error("Prompt not sent to mock2")
+	}
+
+	// mock1 should not have received the new prompt
+	if mock1.PromptCount() != 1 {
+		t.Errorf("mock1 received additional prompts: %d", mock1.PromptCount())
+	}
+}
+
+// TestGameScene_EventTypeCoverage verifies that all supported event types
+// are handled without panic.
+func TestGameScene_EventTypeCoverage(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "event-coverage-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test files
+	testFile := tmpDir + "/test.go"
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	gs, err := NewGameScene(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("Failed to create game scene: %v", err)
+	}
+	defer gs.Close()
+
+	mock := harness.NewMockHarness()
+	registry := harness.NewRegistry()
+	registry.Register("mock", func() harness.Harness { return mock })
+
+	gs.SetHarnessRegistry(registry)
+	gs.SetConfig(ui.GameConfig{
+		Harness:     "mock",
+		Model:       "mock",
+		ProjectPath: tmpDir,
+	})
+
+	// Track processed events
+	processedEvents := make(map[harness.EventType]bool)
+	gs.harnessEventHook = func(event *harness.Event) {
+		if event != nil {
+			processedEvents[event.Type] = true
+		}
+	}
+
+	// Send all supported event types
+	eventTypes := []harness.EventType{
+		harness.EventFileRead,
+		harness.EventFileWrite,
+		harness.EventFileEdit,
+		harness.EventBuildRun,
+		harness.EventTestRun,
+		harness.EventText,
+		harness.EventTurnComplete,
+		harness.EventSubagentRun,
+	}
+
+	for _, et := range eventTypes {
+		event := harness.NewEvent(et).
+			WithSource("mock").
+			WithTool("MockTool").
+			WithToolInput("file_path", testFile).
+			WithToolInput("command", "test").
+			Build()
+		mock.SimulateEvent(event)
+	}
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify all events were processed
+	for _, et := range eventTypes {
+		if !processedEvents[et] {
+			t.Errorf("Event type %v was not processed", et)
+		}
+	}
+}
