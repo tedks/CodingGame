@@ -175,3 +175,148 @@ func TestSaveDiff(t *testing.T) {
 		t.Error("Diff file is empty")
 	}
 }
+
+// Edge case tests for image comparison
+
+func TestCompareImages_TransparentPixels(t *testing.T) {
+	img1 := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	img2 := image.NewRGBA(image.Rect(0, 0, 10, 10))
+
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			img1.Set(x, y, color.RGBA{R: 255, G: 0, B: 0, A: 0})
+			img2.Set(x, y, color.RGBA{R: 0, G: 255, B: 0, A: 0})
+		}
+	}
+
+	result, err := CompareImages(img1, img2, DefaultCompareOptions())
+	if err != nil {
+		t.Fatalf("CompareImages() error: %v", err)
+	}
+
+	if result.Match {
+		t.Error("Transparent pixels with different RGB should NOT match")
+	}
+}
+
+func TestCompareImages_NonZeroOriginBounds(t *testing.T) {
+	img1 := image.NewRGBA(image.Rect(10, 10, 20, 20))
+	img2 := image.NewRGBA(image.Rect(10, 10, 20, 20))
+
+	for y := 10; y < 20; y++ {
+		for x := 10; x < 20; x++ {
+			c := color.RGBA{R: 128, G: 128, B: 128, A: 255}
+			img1.Set(x, y, c)
+			img2.Set(x, y, c)
+		}
+	}
+
+	result, err := CompareImages(img1, img2, DefaultCompareOptions())
+	if err != nil {
+		t.Fatalf("CompareImages() error: %v", err)
+	}
+
+	if !result.Match {
+		t.Error("Identical images with non-zero origin should match")
+	}
+	if result.TotalPixels != 100 {
+		t.Errorf("Expected 100 total pixels, got %d", result.TotalPixels)
+	}
+}
+
+func TestCompareImages_DifferentImageTypes(t *testing.T) {
+	rgba := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	nrgba := image.NewNRGBA(image.Rect(0, 0, 10, 10))
+
+	c := color.RGBA{R: 100, G: 150, B: 200, A: 255}
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			rgba.Set(x, y, c)
+			nrgba.Set(x, y, c)
+		}
+	}
+
+	result, err := CompareImages(rgba, nrgba, DefaultCompareOptions())
+	if err != nil {
+		t.Fatalf("CompareImages() error: %v", err)
+	}
+
+	if !result.Match {
+		t.Error("RGBA and NRGBA images with same color should match")
+	}
+}
+
+func TestColorDifference_KnownDeltas(t *testing.T) {
+	cases := []struct {
+		name     string
+		c1, c2   color.Color
+		expected float64
+	}{
+		{"black to white", color.RGBA{0, 0, 0, 255}, color.RGBA{255, 255, 255, 255}, 255},
+		{"identical", color.RGBA{100, 100, 100, 255}, color.RGBA{100, 100, 100, 255}, 0},
+		{"red only", color.RGBA{0, 100, 100, 255}, color.RGBA{50, 100, 100, 255}, 50},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diff := colorDifference(tc.c1, tc.c2)
+			if diff != tc.expected {
+				t.Errorf("colorDifference() = %v, want %v", diff, tc.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateDiff_DimmingCorrectness(t *testing.T) {
+	img1 := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	img2 := image.NewRGBA(image.Rect(0, 0, 10, 10))
+
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			c := color.RGBA{R: 255, G: 255, B: 255, A: 255}
+			img1.Set(x, y, c)
+			img2.Set(x, y, c)
+		}
+	}
+
+	diff, err := GenerateDiff(img1, img2)
+	if err != nil {
+		t.Fatalf("GenerateDiff() error: %v", err)
+	}
+
+	// 255*257 >> 10 = 63
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			c := diff.At(x, y).(color.RGBA)
+			if c.R != 63 || c.G != 63 || c.B != 63 {
+				t.Errorf("Pixel (%d,%d) = (%d,%d,%d), expected (63,63,63)", x, y, c.R, c.G, c.B)
+			}
+		}
+	}
+}
+
+func TestGenerateDiff_DiffPixelsAreRed(t *testing.T) {
+	img1 := image.NewRGBA(image.Rect(0, 0, 5, 5))
+	img2 := image.NewRGBA(image.Rect(0, 0, 5, 5))
+
+	for y := 0; y < 5; y++ {
+		for x := 0; x < 5; x++ {
+			img1.Set(x, y, color.RGBA{R: 0, G: 0, B: 0, A: 255})
+			img2.Set(x, y, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+	}
+
+	diff, err := GenerateDiff(img1, img2)
+	if err != nil {
+		t.Fatalf("GenerateDiff() error: %v", err)
+	}
+
+	for y := 0; y < 5; y++ {
+		for x := 0; x < 5; x++ {
+			c := diff.At(x, y).(color.RGBA)
+			if c.R != 255 || c.G != 0 || c.B != 0 || c.A != 255 {
+				t.Errorf("Diff pixel (%d,%d) = (%d,%d,%d,%d), want red", x, y, c.R, c.G, c.B, c.A)
+			}
+		}
+	}
+}
