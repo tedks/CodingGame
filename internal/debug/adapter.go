@@ -1,5 +1,7 @@
 package debug
 
+import "sync"
+
 // Adapter defines the interface that debugger backends must implement.
 //
 // Different debuggers (delve for Go, pdb for Python, Chrome DevTools for TypeScript)
@@ -135,7 +137,9 @@ type AdapterCapabilities struct {
 }
 
 // AdapterRegistry manages available debugger adapters.
+// Thread-safe: All methods are safe for concurrent access.
 type AdapterRegistry struct {
+	mu       sync.RWMutex
 	adapters map[string]Adapter
 }
 
@@ -148,16 +152,22 @@ func NewAdapterRegistry() *AdapterRegistry {
 
 // Register registers an adapter.
 func (r *AdapterRegistry) Register(adapter Adapter) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.adapters[adapter.Language()] = adapter
 }
 
 // Get returns an adapter for the given language.
 func (r *AdapterRegistry) Get(language string) Adapter {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.adapters[language]
 }
 
 // Languages returns all registered languages.
 func (r *AdapterRegistry) Languages() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	result := make([]string, 0, len(r.adapters))
 	for lang := range r.adapters {
 		result = append(result, lang)

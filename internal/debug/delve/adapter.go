@@ -44,12 +44,21 @@ type Adapter struct {
 }
 
 // sessionState tracks the state of a debug session.
+//
+// Concurrency:
+// - rpcMu serializes RPC calls to prevent response mixing
+// - rpcID is atomic for ID generation without lock
 type sessionState struct {
 	session *debug.Session
 	cmd     *exec.Cmd    // dlv process
 	conn    net.Conn     // RPC connection
 	rpcID   atomic.Int64 // RPC request ID counter
 	port    int          // dlv API port
+
+	// RPC serialization - persistent encoder/decoder with mutex
+	rpcMu   sync.Mutex
+	encoder *json.Encoder
+	decoder *json.Decoder
 }
 
 // NewAdapter creates a new delve adapter.
@@ -132,6 +141,8 @@ func (a *Adapter) Launch(program string, args []string, cwd string) (*debug.Sess
 		cmd:     cmd,
 		conn:    conn,
 		port:    port,
+		encoder: json.NewEncoder(conn),
+		decoder: json.NewDecoder(conn),
 	}
 
 	a.sessions[sessionID] = state
@@ -196,6 +207,8 @@ func (a *Adapter) Attach(pid int) (*debug.Session, error) {
 		cmd:     cmd,
 		conn:    conn,
 		port:    port,
+		encoder: json.NewEncoder(conn),
+		decoder: json.NewDecoder(conn),
 	}
 
 	a.sessions[sessionID] = state
@@ -221,6 +234,8 @@ func (a *Adapter) Connect(address string) (*debug.Session, error) {
 	state := &sessionState{
 		session: session,
 		conn:    conn,
+		encoder: json.NewEncoder(conn),
+		decoder: json.NewDecoder(conn),
 	}
 
 	a.sessions[sessionID] = state
