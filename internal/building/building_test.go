@@ -501,3 +501,446 @@ func TestBuildingConcurrency(t *testing.T) {
 	// If we get here without data race, test passes
 	// (run with -race flag to detect races)
 }
+
+// --- Numeric Edge Case Tests ---
+
+// TestBuilding_ZeroDuration tests that zero duration builds are handled.
+func TestBuilding_ZeroDuration(t *testing.T) {
+	target := build.Target{ID: "zero-dur", Name: "zero-dur"}
+	b := New(target, "bazel", 0, 0)
+
+	// Zero duration is valid (very fast cached build)
+	result := &build.Result{
+		Success:   true,
+		Duration:  0, // Zero duration
+		StartTime: time.Now(),
+		EndTime:   time.Now(),
+	}
+	b.RecordBuild(result)
+
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 1 {
+		t.Errorf("TotalBuilds = %d, want 1", metrics.TotalBuilds)
+	}
+	if metrics.MinDuration != 0 {
+		t.Errorf("MinDuration = %v, want 0", metrics.MinDuration)
+	}
+	if metrics.MaxDuration != 0 {
+		t.Errorf("MaxDuration = %v, want 0", metrics.MaxDuration)
+	}
+	if metrics.AvgDuration != 0 {
+		t.Errorf("AvgDuration = %v, want 0", metrics.AvgDuration)
+	}
+}
+
+// TestBuilding_ZeroCacheOperations tests builds with no cache operations.
+func TestBuilding_ZeroCacheOperations(t *testing.T) {
+	target := build.Target{ID: "no-cache", Name: "no-cache"}
+	b := New(target, "npm", 0, 0) // npm might not report cache stats
+
+	result := &build.Result{
+		Success:     true,
+		Duration:    5 * time.Second,
+		CacheHits:   0, // No cache operations
+		CacheMisses: 0,
+		StartTime:   time.Now(),
+		EndTime:     time.Now().Add(5 * time.Second),
+	}
+	b.RecordBuild(result)
+
+	metrics := b.Metrics()
+
+	// AvgCacheHitRate should be 0 when there are no cache operations
+	if metrics.AvgCacheHitRate != 0 {
+		t.Errorf("AvgCacheHitRate = %v, want 0 (no cache operations)", metrics.AvgCacheHitRate)
+	}
+}
+
+// TestBuilding_ExactlyFiveBuilds tests the trend boundary (5 builds = stable).
+func TestBuilding_ExactlyFiveBuilds(t *testing.T) {
+	target := build.Target{ID: "five-builds", Name: "five-builds"}
+	b := New(target, "bazel", 0, 0)
+
+	// Record exactly 5 builds with different durations
+	// This is below the threshold for trend calculation (needs 6+)
+	for i := 0; i < 5; i++ {
+		result := &build.Result{
+			Success:   true,
+			Duration:  time.Duration(i+1) * time.Second,
+			StartTime: time.Now(),
+			EndTime:   time.Now().Add(time.Duration(i+1) * time.Second),
+		}
+		b.RecordBuild(result)
+	}
+
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 5 {
+		t.Errorf("TotalBuilds = %d, want 5", metrics.TotalBuilds)
+	}
+	// With exactly 5 builds, trend should be stable (not enough data)
+	if metrics.DurationTrend != TrendStable {
+		t.Errorf("DurationTrend = %q, want %q (need 6+ builds for trend)", metrics.DurationTrend, TrendStable)
+	}
+}
+
+// TestBuilding_ExactlySixBuilds tests the minimum for trend calculation.
+func TestBuilding_ExactlySixBuilds(t *testing.T) {
+	target := build.Target{ID: "six-builds", Name: "six-builds"}
+	b := New(target, "bazel", 0, 0)
+
+	// First build (will be compared against last 5)
+	result := &build.Result{
+		Success:   true,
+		Duration:  10 * time.Second,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(10 * time.Second),
+	}
+	b.RecordBuild(result)
+
+	// Next 5 builds (faster)
+	for i := 0; i < 5; i++ {
+		result := &build.Result{
+			Success:   true,
+			Duration:  5 * time.Second,
+			StartTime: time.Now(),
+			EndTime:   time.Now().Add(5 * time.Second),
+		}
+		b.RecordBuild(result)
+	}
+
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 6 {
+		t.Errorf("TotalBuilds = %d, want 6", metrics.TotalBuilds)
+	}
+	// With 6 builds where last 5 are faster than first, should be improving
+	if metrics.DurationTrend != TrendImproving {
+		t.Errorf("DurationTrend = %q, want %q", metrics.DurationTrend, TrendImproving)
+	}
+}
+
+// TestBuilding_TrendBoundaryTenPercent tests exact 10% threshold behavior.
+func TestBuilding_TrendBoundaryTenPercent(t *testing.T) {
+	// Test exactly at the 10% threshold boundary
+	testCases := []struct {
+		name          string
+		previousAvg   time.Duration
+		recentAvg     time.Duration
+		expectedTrend Trend
+	}{
+		{
+			name:          "exactly_10_percent_faster",
+			previousAvg:   100 * time.Second,
+			recentAvg:     90 * time.Second, // exactly 10% faster
+			expectedTrend: TrendStable,      // diff == threshold, not < threshold
+		},
+		{
+			name:          "just_over_10_percent_faster",
+			previousAvg:   100 * time.Second,
+			recentAvg:     89 * time.Second, // 11% faster
+			expectedTrend: TrendImproving,
+		},
+		{
+			name:          "just_under_10_percent_faster",
+			previousAvg:   100 * time.Second,
+			recentAvg:     91 * time.Second, // 9% faster
+			expectedTrend: TrendStable,
+		},
+		{
+			name:          "exactly_10_percent_slower",
+			previousAvg:   100 * time.Second,
+			recentAvg:     110 * time.Second, // exactly 10% slower
+			expectedTrend: TrendStable,       // diff == threshold, not > threshold
+		},
+		{
+			name:          "just_over_10_percent_slower",
+			previousAvg:   100 * time.Second,
+			recentAvg:     111 * time.Second, // 11% slower
+			expectedTrend: TrendDegrading,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			target := build.Target{ID: tc.name, Name: tc.name}
+			b := New(target, "bazel", 0, 0)
+
+			// Record 1 build at previousAvg (this is the "previous" builds)
+			result := &build.Result{
+				Success:   true,
+				Duration:  tc.previousAvg,
+				StartTime: time.Now(),
+				EndTime:   time.Now().Add(tc.previousAvg),
+			}
+			b.RecordBuild(result)
+
+			// Record 5 builds at recentAvg (these are the "last 5")
+			for i := 0; i < 5; i++ {
+				result := &build.Result{
+					Success:   true,
+					Duration:  tc.recentAvg,
+					StartTime: time.Now(),
+					EndTime:   time.Now().Add(tc.recentAvg),
+				}
+				b.RecordBuild(result)
+			}
+
+			metrics := b.Metrics()
+			if metrics.DurationTrend != tc.expectedTrend {
+				t.Errorf("DurationTrend = %q, want %q", metrics.DurationTrend, tc.expectedTrend)
+			}
+		})
+	}
+}
+
+// --- State Machine Tests ---
+
+// TestBuilding_RecordBuildWithoutStart tests RecordBuild when state is Idle.
+func TestBuilding_RecordBuildWithoutStart(t *testing.T) {
+	target := build.Target{ID: "no-start", Name: "no-start"}
+	b := New(target, "bazel", 0, 0)
+
+	// RecordBuild without StartBuild - should still work (permissive)
+	result := &build.Result{
+		Success:   true,
+		Duration:  5 * time.Second,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(5 * time.Second),
+	}
+	b.RecordBuild(result)
+
+	// State should be success
+	if b.State() != StateSuccess {
+		t.Errorf("State() = %q, want %q", b.State(), StateSuccess)
+	}
+
+	// Metrics should be recorded
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 1 {
+		t.Errorf("TotalBuilds = %d, want 1", metrics.TotalBuilds)
+	}
+}
+
+// TestBuilding_DoubleStartBuild tests calling StartBuild twice.
+func TestBuilding_DoubleStartBuild(t *testing.T) {
+	target := build.Target{ID: "double-start", Name: "double-start"}
+	b := New(target, "bazel", 0, 0)
+
+	// StartBuild twice
+	b.StartBuild()
+	b.StartBuild()
+
+	// State should still be Building
+	if b.State() != StateBuilding {
+		t.Errorf("State() = %q, want %q", b.State(), StateBuilding)
+	}
+
+	// Metrics should be unchanged (no builds recorded)
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 0 {
+		t.Errorf("TotalBuilds = %d, want 0", metrics.TotalBuilds)
+	}
+}
+
+// TestBuilding_DoubleRecordBuild tests calling RecordBuild twice without StartBuild.
+func TestBuilding_DoubleRecordBuild(t *testing.T) {
+	target := build.Target{ID: "double-record", Name: "double-record"}
+	b := New(target, "bazel", 0, 0)
+
+	b.StartBuild()
+
+	result1 := &build.Result{
+		Success:   true,
+		Duration:  5 * time.Second,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(5 * time.Second),
+	}
+	b.RecordBuild(result1)
+
+	result2 := &build.Result{
+		Success:   false,
+		Duration:  3 * time.Second,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(3 * time.Second),
+	}
+	b.RecordBuild(result2)
+
+	// Both builds should be recorded
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 2 {
+		t.Errorf("TotalBuilds = %d, want 2", metrics.TotalBuilds)
+	}
+	if metrics.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", metrics.SuccessCount)
+	}
+	if metrics.FailureCount != 1 {
+		t.Errorf("FailureCount = %d, want 1", metrics.FailureCount)
+	}
+
+	// State should reflect last build
+	if b.State() != StateFailed {
+		t.Errorf("State() = %q, want %q", b.State(), StateFailed)
+	}
+}
+
+// TestBuilding_StateTransitionFromSuccess tests transitioning from Success to Building.
+func TestBuilding_StateTransitionFromSuccess(t *testing.T) {
+	target := build.Target{ID: "success-to-building", Name: "success-to-building"}
+	b := New(target, "bazel", 0, 0)
+
+	// Get to Success state
+	b.StartBuild()
+	result := &build.Result{
+		Success:   true,
+		Duration:  time.Second,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(time.Second),
+	}
+	b.RecordBuild(result)
+
+	if b.State() != StateSuccess {
+		t.Fatalf("Expected StateSuccess, got %q", b.State())
+	}
+
+	// Start a new build
+	b.StartBuild()
+
+	if b.State() != StateBuilding {
+		t.Errorf("State() = %q, want %q after StartBuild from Success", b.State(), StateBuilding)
+	}
+}
+
+// TestBuilding_StateTransitionFromFailed tests transitioning from Failed to Building.
+func TestBuilding_StateTransitionFromFailed(t *testing.T) {
+	target := build.Target{ID: "failed-to-building", Name: "failed-to-building"}
+	b := New(target, "bazel", 0, 0)
+
+	// Get to Failed state
+	b.StartBuild()
+	result := &build.Result{
+		Success:      false,
+		Duration:     time.Second,
+		ErrorMessage: "test error",
+		StartTime:    time.Now(),
+		EndTime:      time.Now().Add(time.Second),
+	}
+	b.RecordBuild(result)
+
+	if b.State() != StateFailed {
+		t.Fatalf("Expected StateFailed, got %q", b.State())
+	}
+
+	// Start a new build
+	b.StartBuild()
+
+	if b.State() != StateBuilding {
+		t.Errorf("State() = %q, want %q after StartBuild from Failed", b.State(), StateBuilding)
+	}
+}
+
+// TestBuilding_AllStateCombinations tests all valid state transitions.
+func TestBuilding_AllStateCombinations(t *testing.T) {
+	transitions := []struct {
+		name       string
+		fromState  BuildState
+		action     string
+		success    bool
+		expectedTo BuildState
+	}{
+		{"idle_to_building", StateIdle, "start", false, StateBuilding},
+		{"building_to_success", StateBuilding, "record", true, StateSuccess},
+		{"building_to_failed", StateBuilding, "record", false, StateFailed},
+		{"success_to_building", StateSuccess, "start", false, StateBuilding},
+		{"failed_to_building", StateFailed, "start", false, StateBuilding},
+	}
+
+	for _, tc := range transitions {
+		t.Run(tc.name, func(t *testing.T) {
+			target := build.Target{ID: tc.name, Name: tc.name}
+			b := New(target, "bazel", 0, 0)
+
+			// Get to fromState
+			switch tc.fromState {
+			case StateIdle:
+				// Already there
+			case StateBuilding:
+				b.StartBuild()
+			case StateSuccess:
+				b.StartBuild()
+				b.RecordBuild(&build.Result{Success: true, Duration: time.Second, StartTime: time.Now(), EndTime: time.Now().Add(time.Second)})
+			case StateFailed:
+				b.StartBuild()
+				b.RecordBuild(&build.Result{Success: false, Duration: time.Second, StartTime: time.Now(), EndTime: time.Now().Add(time.Second)})
+			}
+
+			if b.State() != tc.fromState {
+				t.Fatalf("Failed to reach fromState %q, got %q", tc.fromState, b.State())
+			}
+
+			// Perform action
+			switch tc.action {
+			case "start":
+				b.StartBuild()
+			case "record":
+				b.RecordBuild(&build.Result{Success: tc.success, Duration: time.Second, StartTime: time.Now(), EndTime: time.Now().Add(time.Second)})
+			}
+
+			// Verify result
+			if b.State() != tc.expectedTo {
+				t.Errorf("After %s from %s: State() = %q, want %q", tc.action, tc.fromState, b.State(), tc.expectedTo)
+			}
+		})
+	}
+}
+
+// TestBuilding_NegativeDuration tests that negative duration doesn't crash.
+// This is a defensive edge case - shouldn't happen in practice.
+func TestBuilding_NegativeDuration(t *testing.T) {
+	target := build.Target{ID: "neg-dur", Name: "neg-dur"}
+	b := New(target, "bazel", 0, 0)
+
+	// Negative duration (shouldn't happen, but be defensive)
+	result := &build.Result{
+		Success:   true,
+		Duration:  -5 * time.Second,
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(-5 * time.Second),
+	}
+	b.RecordBuild(result)
+
+	// Should still record the build
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 1 {
+		t.Errorf("TotalBuilds = %d, want 1", metrics.TotalBuilds)
+	}
+	// MinDuration might be negative - that's the data we got
+	if metrics.MinDuration != -5*time.Second {
+		t.Errorf("MinDuration = %v, want -5s (preserves input)", metrics.MinDuration)
+	}
+}
+
+// TestBuilding_LargeValues tests handling of large numeric values.
+func TestBuilding_LargeValues(t *testing.T) {
+	target := build.Target{ID: "large", Name: "large"}
+	b := New(target, "bazel", 0, 0)
+
+	// Use large but not overflow-inducing values
+	// int64 max is ~9.2e18, so 1e15 + 1e15 = 2e15 is safe
+	result := &build.Result{
+		Success:     true,
+		Duration:    24 * time.Hour * 365, // 1 year (unrealistic but valid)
+		CacheHits:   int64(1e15),          // Large but sum won't overflow
+		CacheMisses: int64(1e15),
+		StartTime:   time.Now(),
+		EndTime:     time.Now().Add(24 * time.Hour * 365),
+	}
+	b.RecordBuild(result)
+
+	metrics := b.Metrics()
+	if metrics.TotalBuilds != 1 {
+		t.Errorf("TotalBuilds = %d, want 1", metrics.TotalBuilds)
+	}
+	// Cache hit rate should be 50% (equal hits and misses)
+	if metrics.AvgCacheHitRate != 50.0 {
+		t.Errorf("AvgCacheHitRate = %v, want 50.0", metrics.AvgCacheHitRate)
+	}
+}
