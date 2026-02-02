@@ -1,8 +1,12 @@
 package resources
 
 import (
+	"fmt"
 	"image/color"
+	"strings"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 func TestNew(t *testing.T) {
@@ -213,4 +217,278 @@ func TestDrawWithNoResourcesDoesNotPanic(t *testing.T) {
 	}()
 
 	tracker.Draw(nil, 0, 0, 100, 20)
+}
+
+// ============================================================================
+// Edge Case Tests from Issue #62
+// ============================================================================
+
+// TestDrawWithSmallDimensions verifies that Draw handles small widths gracefully.
+// Risk: width < 20 causes barWidth = width - 2*padding to go negative.
+func TestDrawWithSmallDimensions(t *testing.T) {
+	tracker := New()
+	img := ebiten.NewImage(100, 100)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Draw panicked with small dimensions: %v", r)
+		}
+	}()
+
+	// Width smaller than 2*padding (20)
+	tracker.Draw(img, 0, 0, 15, 20) // barWidth = 15-20 = -5
+	tracker.Draw(img, 0, 0, 0, 20)  // barWidth = -20
+	tracker.Draw(img, 0, 0, 1, 1)   // Minimal dimensions
+
+	// Should not panic - verify graceful handling
+}
+
+// TestMaxZeroOrNegative verifies behavior when Max is zero or negative.
+// Risk: Division by zero or negative ratio in fillPct calculation.
+func TestMaxZeroOrNegative(t *testing.T) {
+	tracker := New()
+
+	// Clear default resources to isolate test
+	tracker.resources = nil
+
+	tracker.AddResource(&Resource{Name: "ZeroMax", Max: 0, Current: 100, Color: color.RGBA{255, 0, 0, 255}})
+	tracker.AddResource(&Resource{Name: "NegMax", Max: -100, Current: 50, Color: color.RGBA{0, 255, 0, 255}})
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Draw panicked with zero/negative Max: %v", r)
+		}
+	}()
+
+	// Draw should not panic
+	img := ebiten.NewImage(200, 40)
+	tracker.Draw(img, 0, 0, 200, 40)
+
+	// Verify fillPct is handled correctly (Max=0 → fillPct=0 via guard)
+	// Max=-100 → fillPct = 50/-100 = -0.5 → clamped to 0
+}
+
+// TestNegativeCurrent verifies that negative Current values are handled.
+// Risk: Undefined display for negative values.
+func TestNegativeCurrent(t *testing.T) {
+	tracker := New()
+
+	tracker.UpdateResource("Context", -5000)
+
+	res := tracker.GetResource("Context")
+	if res == nil {
+		t.Fatal("expected Context resource to exist")
+	}
+	if res.Current != -5000 {
+		t.Errorf("expected -5000, got %d", res.Current)
+	}
+
+	// Verify text formatting handles negative
+	text := tracker.formatResourceText(res)
+	if !strings.Contains(text, "-5000") {
+		t.Errorf("negative value not displayed correctly: %s", text)
+	}
+
+	// Verify draw doesn't panic with negative current
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Draw panicked with negative Current: %v", r)
+		}
+	}()
+
+	img := ebiten.NewImage(200, 40)
+	tracker.Draw(img, 0, 0, 200, 40)
+}
+
+// TestDuplicateResourceNames verifies behavior when multiple resources share names.
+// Risk: Undefined behavior for which resource is updated/retrieved.
+func TestDuplicateResourceNames(t *testing.T) {
+	tracker := New()
+	// Clear defaults
+	tracker.resources = nil
+
+	tracker.AddResource(&Resource{Name: "Dupe", Max: 100, Current: 10, Color: color.RGBA{255, 0, 0, 255}})
+	tracker.AddResource(&Resource{Name: "Dupe", Max: 200, Current: 20, Color: color.RGBA{0, 255, 0, 255}})
+
+	// UpdateResource should update first match
+	tracker.UpdateResource("Dupe", 50)
+
+	// GetResource should return first match
+	res := tracker.GetResource("Dupe")
+	if res == nil {
+		t.Fatal("expected Dupe resource to exist")
+	}
+	if res.Current != 50 {
+		t.Errorf("expected first 'Dupe' updated to 50, got %d", res.Current)
+	}
+	if res.Max != 100 {
+		t.Errorf("expected first 'Dupe' Max=100, got %d", res.Max)
+	}
+}
+
+// TestUpdateNonexistentResource verifies that updating a non-existent resource is a silent no-op.
+// This documents the expected behavior.
+func TestUpdateNonexistentResource(t *testing.T) {
+	tracker := New()
+
+	// Should be silent no-op
+	tracker.UpdateResource("DoesNotExist", 100)
+
+	res := tracker.GetResource("DoesNotExist")
+	if res != nil {
+		t.Error("UpdateResource should not create new resources")
+	}
+}
+
+// TestFormatResourceText_NegativeCents verifies formatting of negative cent values.
+func TestFormatResourceText_NegativeCents(t *testing.T) {
+	tracker := New()
+	res := &Resource{Name: "Cost", Current: -1234, Max: 10000, Unit: "cents"}
+
+	text := tracker.formatResourceText(res)
+	// Note: -1234 cents = -$12.34, formatted as "$-12.34"
+	expected := "Cost: $-12.34 / $100.00"
+	if text != expected {
+		t.Errorf("expected %q, got %q", expected, text)
+	}
+}
+
+// TestFormatResourceText_LargeValues verifies formatting doesn't overflow with large int64 values.
+func TestFormatResourceText_LargeValues(t *testing.T) {
+	tracker := New()
+	res := &Resource{
+		Name:    "Huge",
+		Current: 9223372036854775807, // MaxInt64
+		Max:     9223372036854775807,
+		Unit:    "tokens",
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("formatResourceText panicked with large values: %v", r)
+		}
+	}()
+
+	text := tracker.formatResourceText(res)
+	// Just verify no panic and contains expected parts
+	if !strings.Contains(text, "Huge:") {
+		t.Errorf("missing name in: %s", text)
+	}
+	if !strings.Contains(text, "9223372036854775807") {
+		t.Errorf("missing large value in: %s", text)
+	}
+}
+
+// TestFormatResourceText_EmptyUnit verifies formatting with empty unit string.
+func TestFormatResourceText_EmptyUnit(t *testing.T) {
+	tracker := New()
+	res := &Resource{Name: "NoUnit", Current: 50, Max: 100, Unit: ""}
+
+	text := tracker.formatResourceText(res)
+	// Expected: "NoUnit: 50/100 " (trailing space from %s with empty string)
+	if !strings.HasPrefix(text, "NoUnit: 50/100") {
+		t.Errorf("unexpected format: %s", text)
+	}
+}
+
+// TestFormatResourceText_ZeroCents verifies $0.00 formatting.
+func TestFormatResourceText_ZeroCents(t *testing.T) {
+	tracker := New()
+	res := &Resource{Name: "Cost", Current: 0, Max: 10000, Unit: "cents"}
+
+	text := tracker.formatResourceText(res)
+	expected := "Cost: $0.00 / $100.00"
+	if text != expected {
+		t.Errorf("expected %q, got %q", expected, text)
+	}
+}
+
+// TestDrawWithNilScreen verifies that Draw handles nil screen gracefully.
+func TestDrawWithNilScreen(t *testing.T) {
+	tracker := New()
+
+	defer func() {
+		if r := recover(); r != nil {
+			// This is expected - Ebitengine doesn't handle nil screens
+			// Document this behavior
+			t.Logf("Draw panics with nil screen (expected): %v", r)
+		}
+	}()
+
+	// Note: This may panic, which is acceptable behavior
+	// The test documents what happens
+	tracker.Draw(nil, 0, 0, 200, 40)
+}
+
+// TestCurrentExceedsMax verifies behavior when Current > Max.
+func TestCurrentExceedsMax(t *testing.T) {
+	tracker := New()
+
+	tracker.UpdateResource("Context", 300000) // Exceeds max of 200000
+
+	res := tracker.GetResource("Context")
+	if res == nil {
+		t.Fatal("expected Context resource to exist")
+	}
+	if res.Current != 300000 {
+		t.Errorf("expected 300000, got %d", res.Current)
+	}
+
+	// fillPct should be clamped to 1.0, not > 1
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Draw panicked with Current > Max: %v", r)
+		}
+	}()
+
+	img := ebiten.NewImage(200, 40)
+	tracker.Draw(img, 0, 0, 200, 40)
+}
+
+// ============================================================================
+// Benchmarks
+// ============================================================================
+
+// BenchmarkRapidUpdates measures performance of frequent resource updates.
+func BenchmarkRapidUpdates(b *testing.B) {
+	tracker := New()
+	for i := 0; i < b.N; i++ {
+		tracker.UpdateResource("Context", int64(i))
+	}
+}
+
+// BenchmarkManyResources measures Draw performance with many resources.
+func BenchmarkManyResources(b *testing.B) {
+	tracker := New()
+	// Clear defaults
+	tracker.resources = nil
+
+	for i := 0; i < 50; i++ {
+		tracker.AddResource(&Resource{
+			Name:    fmt.Sprintf("Resource%d", i),
+			Max:     1000,
+			Current: int64(i * 20),
+			Color:   color.RGBA{uint8(i * 5), uint8(i * 3), uint8(i * 4), 255},
+		})
+	}
+
+	img := ebiten.NewImage(1920, 40)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tracker.Draw(img, 0, 0, 1920, 40)
+	}
+}
+
+// BenchmarkConcurrentAccess measures performance under concurrent access.
+func BenchmarkConcurrentAccess(b *testing.B) {
+	tracker := New()
+
+	b.RunParallel(func(pb *testing.PB) {
+		i := int64(0)
+		for pb.Next() {
+			tracker.UpdateResource("Context", i)
+			_ = tracker.GetResource("Context")
+			i++
+		}
+	})
 }
