@@ -52,3 +52,60 @@ func TestDefaultScreenshotPath(t *testing.T) {
 		t.Errorf("DefaultScreenshotPath() = %s, want .png extension", path)
 	}
 }
+
+// Path sanitization edge cases
+
+func TestSanitizeName_EdgeCases(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"empty string", "", ""},
+		{"already safe", "TestMyFunction", "TestMyFunction"},
+		{"underscores and hyphens", "test_my-function", "test_my-function"},
+		{"numbers", "test123", "test123"},
+		{"path separators", "internal/testutil/test", "internal_testutil_test"},
+		{"spaces", "test with spaces", "test_with_spaces"},
+		{"special chars", "test@#$%", "test____"},
+		{"dots", "test.file.name", "test_file_name"},
+		{"colons", "Test::Subtest/case", "Test__Subtest_case"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sanitizeName(tc.input)
+			if got != tc.want {
+				t.Errorf("sanitizeName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeName_LongString(t *testing.T) {
+	input := ""
+	for i := 0; i < 200; i++ {
+		input += "abcde"
+	}
+	result := sanitizeName(input)
+	if len(result) != 1000 {
+		t.Errorf("Expected 1000 character result, got %d", len(result))
+	}
+}
+
+func TestSanitizeName_BytePreservation(t *testing.T) {
+	allSafe := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+	result := sanitizeName(allSafe)
+	if result != allSafe {
+		t.Errorf("All safe characters should be preserved, got %q", result)
+	}
+}
+
+func TestSanitizeName_NonASCIIReplacement(t *testing.T) {
+	input := "café"
+	result := sanitizeName(input)
+	// 'c', 'a', 'f' are safe, 'é' (2 bytes) becomes '__'
+	if result != "caf__" {
+		t.Errorf("sanitizeName(%q) = %q, expected 'caf__'", input, result)
+	}
+}

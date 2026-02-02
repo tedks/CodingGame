@@ -166,3 +166,122 @@ func TestTestInputSource_Clear(t *testing.T) {
 		t.Errorf("expected (0,0) after clear, got (%d,%d)", x, y)
 	}
 }
+
+// Completeness tests
+
+func TestTestInputSource_MultipleKeysInSameFrame(t *testing.T) {
+	source := NewTestInputSource()
+
+	source.QueueKeyPress(ebiten.KeyA)
+	source.QueueKeyPress(ebiten.KeyB)
+	source.QueueKeyPress(ebiten.KeyC)
+	source.AdvanceFrame()
+
+	justPressed := source.JustPressedKeys()
+	if len(justPressed) != 3 {
+		t.Errorf("expected 3 just-pressed keys, got %d", len(justPressed))
+	}
+
+	for _, key := range []ebiten.Key{ebiten.KeyA, ebiten.KeyB, ebiten.KeyC} {
+		if !source.IsKeyJustPressed(key) {
+			t.Errorf("expected key %v to be just pressed", key)
+		}
+	}
+}
+
+func TestTestInputSource_InterleavedEvents(t *testing.T) {
+	source := NewTestInputSource()
+
+	source.QueueKeyPress(ebiten.KeyA)
+	source.QueueMouseMove(50, 50)
+	source.QueueKeyPress(ebiten.KeyB)
+	source.QueueMouseClick(ebiten.MouseButtonLeft)
+	source.QueueCharInput('x')
+	source.AdvanceFrame()
+
+	if !source.IsKeyJustPressed(ebiten.KeyA) || !source.IsKeyJustPressed(ebiten.KeyB) {
+		t.Error("Keys should be pressed")
+	}
+	x, y := source.CursorPosition()
+	if x != 50 || y != 50 {
+		t.Errorf("cursor = (%d,%d), want (50,50)", x, y)
+	}
+	if !source.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		t.Error("left button should be pressed")
+	}
+	chars := source.AppendInputChars(nil)
+	if len(chars) != 1 || chars[0] != 'x' {
+		t.Errorf("chars = %v, want ['x']", chars)
+	}
+}
+
+func TestTestInputSource_UnicodeCharInput(t *testing.T) {
+	source := NewTestInputSource()
+
+	testChars := []rune{'a', 'ñ', '日', '🎮', 'π', '€'}
+	for _, c := range testChars {
+		source.QueueCharInput(c)
+	}
+	source.AdvanceFrame()
+
+	chars := source.AppendInputChars(nil)
+	if len(chars) != len(testChars) {
+		t.Errorf("expected %d chars, got %d", len(testChars), len(chars))
+	}
+	for i, expected := range testChars {
+		if i < len(chars) && chars[i] != expected {
+			t.Errorf("char[%d] = %q, want %q", i, chars[i], expected)
+		}
+	}
+}
+
+func TestTestInputSource_LargeEventQueue(t *testing.T) {
+	source := NewTestInputSource()
+
+	const numEvents = 1000
+	for i := 0; i < numEvents; i++ {
+		source.QueueCharInput(rune('a' + (i % 26)))
+	}
+	source.AdvanceFrame()
+
+	chars := source.AppendInputChars(nil)
+	if len(chars) != numEvents {
+		t.Errorf("expected %d chars, got %d", numEvents, len(chars))
+	}
+}
+
+func TestTestInputSource_WheelResetEachFrame(t *testing.T) {
+	source := NewTestInputSource()
+
+	source.QueueMouseWheel(1.0, 2.0)
+	source.AdvanceFrame()
+
+	x, y := source.Wheel()
+	if x != 1.0 || y != 2.0 {
+		t.Errorf("wheel = (%v,%v), want (1.0,2.0)", x, y)
+	}
+
+	source.AdvanceFrame()
+	x, y = source.Wheel()
+	if x != 0 || y != 0 {
+		t.Errorf("wheel should reset to (0,0), got (%v,%v)", x, y)
+	}
+}
+
+func TestTestInputSource_CharsResetEachFrame(t *testing.T) {
+	source := NewTestInputSource()
+
+	source.QueueTextInput("hello")
+	source.AdvanceFrame()
+
+	chars := source.AppendInputChars(nil)
+	if string(chars) != "hello" {
+		t.Errorf("chars = %q, want 'hello'", string(chars))
+	}
+
+	source.AdvanceFrame()
+	chars = source.AppendInputChars(nil)
+	if len(chars) != 0 {
+		t.Errorf("chars should be empty, got %q", string(chars))
+	}
+}
