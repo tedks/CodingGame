@@ -1,6 +1,7 @@
 package debug
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -459,6 +460,162 @@ func TestAdapterRegistry(t *testing.T) {
 	langs := reg.Languages()
 	if len(langs) != 0 {
 		t.Errorf("expected 0 languages, got %d", len(langs))
+	}
+}
+
+// mockAdapter implements Adapter interface for testing.
+type mockAdapter struct {
+	name     string
+	language string
+}
+
+func (m *mockAdapter) Name() string                                              { return m.name }
+func (m *mockAdapter) Language() string                                          { return m.language }
+func (m *mockAdapter) Launch(string, []string, string) (*Session, error)         { return nil, nil }
+func (m *mockAdapter) Attach(int) (*Session, error)                              { return nil, nil }
+func (m *mockAdapter) Connect(string) (*Session, error)                          { return nil, nil }
+func (m *mockAdapter) Disconnect(*Session) error                                 { return nil }
+func (m *mockAdapter) Terminate(*Session) error                                  { return nil }
+func (m *mockAdapter) Continue(*Session) error                                   { return nil }
+func (m *mockAdapter) Pause(*Session) error                                      { return nil }
+func (m *mockAdapter) StepOver(*Session) error                                   { return nil }
+func (m *mockAdapter) StepInto(*Session) error                                   { return nil }
+func (m *mockAdapter) StepOut(*Session) error                                    { return nil }
+func (m *mockAdapter) SetBreakpoint(*Session, *Breakpoint) (*Breakpoint, error)  { return nil, nil }
+func (m *mockAdapter) ClearBreakpoint(*Session, *Breakpoint) error               { return nil }
+func (m *mockAdapter) GetStackFrames(*Session) ([]*Frame, error)                 { return nil, nil }
+func (m *mockAdapter) GetVariables(*Session, int, string) ([]*Variable, error)   { return nil, nil }
+func (m *mockAdapter) Evaluate(*Session, int, string) (*Variable, error)         { return nil, nil }
+func (m *mockAdapter) SetVariable(*Session, int, string, string) (*Variable, error) { return nil, nil }
+func (m *mockAdapter) SupportsDataFlow() bool                                    { return false }
+func (m *mockAdapter) EnableDataFlow(*Session, bool) error                       { return nil }
+
+func TestAdapterRegistryConcurrentAccess(t *testing.T) {
+	reg := NewAdapterRegistry()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			lang := fmt.Sprintf("lang-%d", n%10)
+			adapter := &mockAdapter{name: fmt.Sprintf("adapter-%d", n), language: lang}
+			reg.Register(adapter)
+			_ = reg.Get(lang)
+			_ = reg.Languages()
+			time.Sleep(time.Microsecond)
+		}(i)
+	}
+	wg.Wait()
+
+	langs := reg.Languages()
+	if len(langs) > 10 {
+		t.Errorf("expected at most 10 languages, got %d", len(langs))
+	}
+}
+
+func TestValidateTransition(t *testing.T) {
+	tests := []struct {
+		name    string
+		from    State
+		to      State
+		wantErr bool
+	}{
+		{"Idle to Running", StateIdle, StateRunning, false},
+		{"Idle to Stopped", StateIdle, StateStopped, false},
+		{"Running to Paused", StateRunning, StatePaused, false},
+		{"Paused to Running", StatePaused, StateRunning, false},
+		{"Idle to Idle", StateIdle, StateIdle, false},
+		{"Idle to Paused", StateIdle, StatePaused, true},
+		{"Stopped to Running", StateStopped, StateRunning, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTransition(tt.from, tt.to)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTransition(%s, %s) error = %v, wantErr = %v",
+					tt.from, tt.to, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestHandlerRemoval(t *testing.T) {
+	s := NewSession("test-1", "go", "/project")
+
+	events := 0
+	id := s.AddHandler(func(e *Event) { events++ })
+
+	s.SetState(StateRunning)
+	if events != 1 {
+		t.Errorf("expected 1 event, got %d", events)
+	}
+
+	if !s.RemoveHandler(id) {
+		t.Error("expected RemoveHandler to return true")
+	}
+
+	s.SetState(StatePaused)
+	if events != 1 {
+		t.Errorf("expected 1 event (no change), got %d", events)
+	}
+
+	if s.RemoveHandler(id) {
+		t.Error("expected RemoveHandler to return false")
+	}
+}
+
+func TestHandlerCount(t *testing.T) {
+	s := NewSession("test-1", "go", "/project")
+
+	if s.HandlerCount() != 0 {
+		t.Errorf("expected 0 handlers, got %d", s.HandlerCount())
+	}
+
+	ids := make([]HandlerID, 10)
+	for i := 0; i < 10; i++ {
+		ids[i] = s.AddHandler(func(e *Event) {})
+	}
+
+	if s.HandlerCount() != 10 {
+		t.Errorf("expected 10 handlers, got %d", s.HandlerCount())
+	}
+
+	for _, id := range ids {
+		s.RemoveHandler(id)
+	}
+
+	if s.HandlerCount() != 0 {
+		t.Errorf("expected 0 handlers, got %d", s.HandlerCount())
+	}
+}
+
+func TestCloneVariableDepthLimit(t *testing.T) {
+	var root *Variable
+	current := &Variable{Name: "level0", Type: "struct", Value: "..."}
+	root = current
+
+	for i := 1; i <= MaxCloneDepth+10; i++ {
+		child := &Variable{Name: fmt.Sprintf("level%d", i), Type: "struct", Value: "..."}
+		current.Children = []*Variable{child}
+		current = child
+	}
+
+	cloned := cloneVariable(root)
+	if cloned == nil {
+		t.Fatal("expected non-nil cloned variable")
+	}
+
+	depth := 0
+	v := cloned
+	for v != nil && len(v.Children) > 0 {
+		depth++
+		v = v.Children[0]
+	}
+
+	if depth > MaxCloneDepth {
+		t.Errorf("cloned depth %d exceeds MaxCloneDepth %d", depth, MaxCloneDepth)
 	}
 }
 
