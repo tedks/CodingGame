@@ -625,3 +625,169 @@ func TestNestedCycles(t *testing.T) {
 		}
 	}
 }
+
+// TestAddEdgeCreatesCycle verifies that adding an edge can create a cycle.
+func TestAddEdgeCreatesCycle(t *testing.T) {
+	g := NewGraph()
+
+	// Start with linear chain: a -> b -> c (no cycle)
+	g.AddNew("b.go", "a.go", TypeImport) // a imports b
+	g.AddNew("c.go", "b.go", TypeImport) // b imports c
+
+	// Verify no cycles yet
+	cycles := g.DetectCircular()
+	if len(cycles) != 0 {
+		t.Fatalf("Linear chain should have no cycles, got %d", len(cycles))
+	}
+
+	// All connections should be non-circular
+	for _, c := range g.All() {
+		if c.IsCircular() {
+			t.Errorf("Connection %s should not be circular in linear chain", c.ID())
+		}
+	}
+
+	// Add edge that completes the cycle: c -> a (c imports a)
+	cycleEdge := g.AddNew("a.go", "c.go", TypeImport)
+
+	// Detect cycles again
+	cycles = g.DetectCircular()
+	if len(cycles) != 1 {
+		t.Errorf("After adding cycle edge, got %d cycles, want 1", len(cycles))
+	}
+
+	// The new edge should be circular
+	if !cycleEdge.IsCircular() {
+		t.Error("Cycle-completing edge should be marked circular")
+	}
+
+	// All edges in the cycle should be circular
+	circularCount := 0
+	for _, c := range g.All() {
+		if c.IsCircular() {
+			circularCount++
+		}
+	}
+	if circularCount != 3 {
+		t.Errorf("Expected 3 circular connections, got %d", circularCount)
+	}
+}
+
+// TestRemoveEdgeBreaksCycle verifies that removing an edge can break a cycle.
+func TestRemoveEdgeBreaksCycle(t *testing.T) {
+	g := NewGraph()
+
+	// Create a cycle: a -> b -> c -> a
+	g.AddNew("b.go", "a.go", TypeImport) // a imports b
+	g.AddNew("c.go", "b.go", TypeImport) // b imports c
+	cycleEdge := g.AddNew("a.go", "c.go", TypeImport) // c imports a
+
+	// Verify cycle exists
+	cycles := g.DetectCircular()
+	if len(cycles) != 1 {
+		t.Fatalf("Should have 1 cycle, got %d", len(cycles))
+	}
+
+	// All should be circular
+	for _, c := range g.All() {
+		if !c.IsCircular() {
+			t.Errorf("Connection %s should be circular", c.ID())
+		}
+	}
+
+	// Remove edge that breaks the cycle
+	g.Remove(cycleEdge.ID())
+
+	// Detect cycles again
+	cycles = g.DetectCircular()
+	if len(cycles) != 0 {
+		t.Errorf("After removing cycle edge, got %d cycles, want 0", len(cycles))
+	}
+
+	// Remaining connections should have circular flag cleared
+	for _, c := range g.All() {
+		if c.IsCircular() {
+			t.Errorf("Connection %s should not be circular after breaking cycle", c.ID())
+		}
+	}
+
+	// Verify graph structure is correct
+	if g.Count() != 2 {
+		t.Errorf("Graph should have 2 connections, got %d", g.Count())
+	}
+}
+
+// TestRemoveEdgeFromOneCycle verifies removing edge from one of multiple cycles.
+func TestRemoveEdgeFromOneCycle(t *testing.T) {
+	g := NewGraph()
+
+	// Create two disjoint cycles
+	// Cycle 1: a <-> b
+	g.AddNew("a.go", "b.go", TypeImport)
+	ab := g.AddNew("b.go", "a.go", TypeImport)
+	// Cycle 2: x <-> y
+	g.AddNew("x.go", "y.go", TypeImport)
+	g.AddNew("y.go", "x.go", TypeImport)
+
+	// Verify both cycles detected
+	cycles := g.DetectCircular()
+	if len(cycles) != 2 {
+		t.Fatalf("Should have 2 cycles, got %d", len(cycles))
+	}
+
+	// Remove one edge from cycle 1
+	g.Remove(ab.ID())
+
+	// Detect cycles again
+	cycles = g.DetectCircular()
+	if len(cycles) != 1 {
+		t.Errorf("After removing one cycle, got %d cycles, want 1", len(cycles))
+	}
+
+	// Only cycle 2 connections should be circular
+	for _, c := range g.All() {
+		isInCycle2 := c.From() == "x.go" || c.From() == "y.go"
+		if c.IsCircular() != isInCycle2 {
+			t.Errorf("Connection %s: IsCircular()=%v, want %v",
+				c.ID(), c.IsCircular(), isInCycle2)
+		}
+	}
+}
+
+// TestDynamicCycleFormation tests cycle detection across multiple add/remove operations.
+func TestDynamicCycleFormation(t *testing.T) {
+	g := NewGraph()
+
+	// Add edges one by one, checking cycle status at each step
+	steps := []struct {
+		from, to      string
+		expectCycles  int
+		expectCircular int
+	}{
+		{"b.go", "a.go", 0, 0}, // a imports b - no cycle
+		{"c.go", "b.go", 0, 0}, // b imports c - still no cycle
+		{"a.go", "c.go", 1, 3}, // c imports a - cycle formed!
+		{"d.go", "c.go", 1, 3}, // d imports c - still one cycle, d outside
+	}
+
+	for i, step := range steps {
+		g.AddNew(step.from, step.to, TypeImport)
+		cycles := g.DetectCircular()
+
+		if len(cycles) != step.expectCycles {
+			t.Errorf("Step %d: expected %d cycles, got %d",
+				i, step.expectCycles, len(cycles))
+		}
+
+		circularCount := 0
+		for _, c := range g.All() {
+			if c.IsCircular() {
+				circularCount++
+			}
+		}
+		if circularCount != step.expectCircular {
+			t.Errorf("Step %d: expected %d circular connections, got %d",
+				i, step.expectCircular, circularCount)
+		}
+	}
+}
