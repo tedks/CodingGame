@@ -1,6 +1,7 @@
 package unit
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -510,5 +511,271 @@ func TestTestResult_Fields(t *testing.T) {
 	}
 	if !result.Timestamp.Equal(now) {
 		t.Error("Timestamp not set correctly")
+	}
+}
+
+// ============================================================================
+// Edge Case Tests (Issue #61 - Boyd-style analysis)
+// ============================================================================
+
+func TestSetCoverage_NaN(t *testing.T) {
+	u := New("test", "test", 0, 0)
+	u.SetCoverage(math.NaN())
+	got := u.Metrics().CoveragePercent
+	// NaN should be clamped to 0
+	if math.IsNaN(got) {
+		t.Error("NaN coverage propagated - should be clamped to 0")
+	}
+	if got != 0 {
+		t.Errorf("NaN coverage = %v, want 0 (clamped)", got)
+	}
+}
+
+func TestSetCoverage_Inf(t *testing.T) {
+	u := New("test", "test", 0, 0)
+
+	u.SetCoverage(math.Inf(1))
+	if got := u.Metrics().CoveragePercent; got != 100 {
+		t.Errorf("+Inf coverage = %v, want 100 (clamped)", got)
+	}
+
+	u.SetCoverage(math.Inf(-1))
+	if got := u.Metrics().CoveragePercent; got != 0 {
+		t.Errorf("-Inf coverage = %v, want 0 (clamped)", got)
+	}
+}
+
+func TestRecordTest_NegativeDuration(t *testing.T) {
+	u := New("test", "test", 0, 0)
+	result := &TestResult{
+		Passed:    true,
+		Duration:  -100 * time.Millisecond,
+		Timestamp: time.Now(),
+	}
+	u.RecordTest(result)
+
+	metrics := u.Metrics()
+	// Negative duration is recorded as-is (documenting current behavior)
+	// This may indicate a bug in test harness, but unit package accepts it
+	if metrics.TotalRuns != 1 {
+		t.Errorf("TotalRuns = %d, want 1", metrics.TotalRuns)
+	}
+	if metrics.MinDuration != -100*time.Millisecond {
+		t.Errorf("MinDuration = %v, want -100ms (negative preserved)", metrics.MinDuration)
+	}
+}
+
+func TestRecordTest_ZeroDuration(t *testing.T) {
+	u := New("test", "test", 0, 0)
+	result := &TestResult{
+		Passed:    true,
+		Duration:  0,
+		Timestamp: time.Now(),
+	}
+	u.RecordTest(result)
+
+	metrics := u.Metrics()
+	if metrics.TotalRuns != 1 {
+		t.Errorf("TotalRuns = %d, want 1", metrics.TotalRuns)
+	}
+	if metrics.AvgDuration != 0 {
+		t.Errorf("AvgDuration = %v, want 0", metrics.AvgDuration)
+	}
+	if metrics.MinDuration != 0 {
+		t.Errorf("MinDuration = %v, want 0", metrics.MinDuration)
+	}
+	if metrics.MaxDuration != 0 {
+		t.Errorf("MaxDuration = %v, want 0", metrics.MaxDuration)
+	}
+}
+
+func TestNew_BothEmpty(t *testing.T) {
+	u := New("", "", 0, 0)
+
+	// Both empty: id fallbacks to name (empty), name fallbacks to id (empty)
+	// Result: both remain empty
+	if u.ID() != "" {
+		t.Errorf("ID() = %q, want empty", u.ID())
+	}
+	if u.Name() != "" {
+		t.Errorf("Name() = %q, want empty", u.Name())
+	}
+}
+
+func TestFlakiness_WindowBoundaries(t *testing.T) {
+	tests := []struct {
+		name      string
+		runs      int
+		pattern   func(i int) bool // true = pass
+		wantScore float64
+	}{
+		{
+			name:      "19 runs alternating",
+			runs:      19,
+			pattern:   func(i int) bool { return i%2 == 0 },
+			wantScore: 100.0, // 18 transitions / 18 possible = 100%
+		},
+		{
+			name:      "20 runs alternating",
+			runs:      20,
+			pattern:   func(i int) bool { return i%2 == 0 },
+			wantScore: 100.0, // 19 transitions / 19 possible = 100%
+		},
+		{
+			name:      "21 runs alternating",
+			runs:      21,
+			pattern:   func(i int) bool { return i%2 == 0 },
+			wantScore: 100.0, // Window is last 20 runs: 19 transitions / 19 = 100%
+		},
+		{
+			name: "40 runs - first 20 fail, last 20 pass",
+			runs: 40,
+			pattern: func(i int) bool {
+				return i >= 20
+			},
+			// Window is last 20 runs (all pass), 0 transitions
+			wantScore: 0.0,
+		},
+		{
+			name: "40 runs - transition at window boundary",
+			runs: 40,
+			pattern: func(i int) bool {
+				// First 21 fail (i <= 20), then pass (i > 20)
+				// Window (runs 20-39): run 20 = fail, runs 21-39 = pass
+				// 1 transition within window
+				return i > 20
+			},
+			// Window is last 20 runs (runs 20-39)
+			// Run 20 = fail, runs 21-39 = pass = 1 transition / 19 possible
+			wantScore: 100.0 / 19.0 * 1.0, // 1 transition / 19 possible ≈ 5.26%
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := New("test", "test", 0, 0)
+			for i := 0; i < tt.runs; i++ {
+				u.RecordTest(&TestResult{
+					Passed:    tt.pattern(i),
+					Duration:  100 * time.Millisecond,
+					Timestamp: time.Now(),
+				})
+			}
+			got := u.Metrics().FlakinessScore
+			// Allow small floating point tolerance
+			if math.Abs(got-tt.wantScore) > 0.01 {
+				t.Errorf("FlakinessScore = %v, want %v", got, tt.wantScore)
+			}
+		})
+	}
+}
+
+func TestMetrics_Invariants(t *testing.T) {
+	u := New("test", "test", 0, 0)
+
+	// Record varied test runs
+	patterns := []bool{true, false, true, true, false, true, false, false, true, true}
+	durations := []time.Duration{10, 50, 30, 20, 100, 5, 80, 40, 60, 25}
+
+	for i, passed := range patterns {
+		u.RecordTest(&TestResult{
+			Passed:    passed,
+			Duration:  durations[i] * time.Millisecond,
+			Timestamp: time.Now(),
+		})
+
+		m := u.Metrics()
+
+		// Invariant 1: PassCount + FailCount == TotalRuns
+		if m.PassCount+m.FailCount != m.TotalRuns {
+			t.Errorf("Run %d: PassCount(%d) + FailCount(%d) != TotalRuns(%d)",
+				i, m.PassCount, m.FailCount, m.TotalRuns)
+		}
+
+		// Invariant 2: MinDuration <= AvgDuration <= MaxDuration
+		if m.TotalRuns > 0 {
+			if m.MinDuration > m.AvgDuration {
+				t.Errorf("Run %d: MinDuration(%v) > AvgDuration(%v)", i, m.MinDuration, m.AvgDuration)
+			}
+			if m.AvgDuration > m.MaxDuration {
+				t.Errorf("Run %d: AvgDuration(%v) > MaxDuration(%v)", i, m.AvgDuration, m.MaxDuration)
+			}
+		}
+
+		// Invariant 3: 0 <= PassRate <= 100
+		if m.PassRate < 0 || m.PassRate > 100 {
+			t.Errorf("Run %d: PassRate(%v) out of [0,100] range", i, m.PassRate)
+		}
+
+		// Invariant 4: 0 <= FlakinessScore <= 100
+		if m.FlakinessScore < 0 || m.FlakinessScore > 100 {
+			t.Errorf("Run %d: FlakinessScore(%v) out of [0,100] range", i, m.FlakinessScore)
+		}
+	}
+}
+
+func TestRecordTest_WithoutStartTest(t *testing.T) {
+	u := New("test", "test", 0, 0)
+
+	// Skip StartTest() - go directly to RecordTest
+	u.RecordTest(&TestResult{
+		Passed:    true,
+		Duration:  100 * time.Millisecond,
+		Timestamp: time.Now(),
+	})
+
+	// Should still transition to Passed (documents current behavior)
+	if u.State() != UnitStatePassed {
+		t.Errorf("State() = %v, want %v", u.State(), UnitStatePassed)
+	}
+}
+
+func TestStartTest_MultipleCallsWithoutRecord(t *testing.T) {
+	u := New("test", "test", 0, 0)
+
+	u.StartTest()
+	u.StartTest()
+	u.StartTest()
+
+	// Multiple StartTest calls - should remain in Running
+	if u.State() != UnitStateRunning {
+		t.Errorf("State() = %v, want %v", u.State(), UnitStateRunning)
+	}
+}
+
+func TestSetPosition_SpecialFloats(t *testing.T) {
+	tests := []struct {
+		name string
+		x, y float64
+	}{
+		{"NaN", math.NaN(), math.NaN()},
+		{"Inf", math.Inf(1), math.Inf(-1)},
+		{"Large", 1e308, -1e308},
+		{"Negative", -100.5, -200.5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := New("test", "test", 0, 0)
+			u.SetPosition(tt.x, tt.y)
+			gotX, gotY := u.Position()
+
+			// Special floats propagate as-is (documenting behavior)
+			if math.IsNaN(tt.x) {
+				if !math.IsNaN(gotX) {
+					t.Errorf("SetPosition(NaN, _) -> Position().x = %v, expected NaN", gotX)
+				}
+			} else if gotX != tt.x {
+				t.Errorf("SetPosition(%v, _) -> Position().x = %v", tt.x, gotX)
+			}
+
+			if math.IsNaN(tt.y) {
+				if !math.IsNaN(gotY) {
+					t.Errorf("SetPosition(_, NaN) -> Position().y = %v, expected NaN", gotY)
+				}
+			} else if gotY != tt.y {
+				t.Errorf("SetPosition(_, %v) -> Position().y = %v", tt.y, gotY)
+			}
+		})
 	}
 }
