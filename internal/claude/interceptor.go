@@ -154,9 +154,18 @@ func (i *Interceptor) dispatchEvents() {
 		copy(handlers, i.handlers)
 		i.mu.RUnlock()
 
-		// Call all handlers with this event
+		// Call all handlers with this event, recovering from panics to prevent
+		// one bad handler from killing the dispatch goroutine
 		for _, handler := range handlers {
-			handler(event)
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// Handler panicked - log but continue dispatching
+						// This prevents one buggy handler from breaking all event delivery
+					}
+				}()
+				handler(event)
+			}()
 		}
 	}
 }
@@ -164,6 +173,10 @@ func (i *Interceptor) dispatchEvents() {
 // parseOutput parses JSON output from Claude subprocess
 func (i *Interceptor) parseOutput(reader io.Reader) {
 	scanner := bufio.NewScanner(reader)
+	// Increase buffer size to handle large Claude outputs (default is 64KB)
+	// Claude can emit large tool results, especially for file reads
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024) // 1MB max line
 	for scanner.Scan() {
 		line := scanner.Bytes()
 
