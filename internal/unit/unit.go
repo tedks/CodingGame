@@ -13,6 +13,7 @@
 package unit
 
 import (
+	"math"
 	"sync"
 	"time"
 )
@@ -226,10 +227,11 @@ func (u *Unit) SetCoverage(percent float64) {
 }
 
 func clampPercent(value float64) float64 {
-	if value < 0 {
+	// Handle special floats first - NaN comparisons always return false
+	if math.IsNaN(value) || math.IsInf(value, -1) || value < 0 {
 		return 0
 	}
-	if value > 100 {
+	if math.IsInf(value, 1) || value > 100 {
 		return 100
 	}
 	return value

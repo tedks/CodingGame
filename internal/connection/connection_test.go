@@ -7,6 +7,9 @@ import (
 )
 
 func TestNewConnection(t *testing.T) {
+	// ID format uses unit separator (0x1F) to avoid collision with paths containing colons
+	sep := string([]byte{0x1F})
+
 	tests := []struct {
 		name     string
 		from     string
@@ -21,7 +24,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "pkg/utils.go",
 			to:       "cmd/main.go",
 			typ:      TypeImport,
-			wantID:   "pkg/utils.go:cmd/main.go:import",
+			wantID:   "pkg/utils.go" + sep + "cmd/main.go" + sep + "import",
 			wantFrom: "pkg/utils.go",
 			wantTo:   "cmd/main.go",
 		},
@@ -30,7 +33,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "pkg\\utils.go",
 			to:       "cmd\\main.go",
 			typ:      TypeImport,
-			wantID:   "pkg/utils.go:cmd/main.go:import",
+			wantID:   "pkg/utils.go" + sep + "cmd/main.go" + sep + "import",
 			wantFrom: "pkg/utils.go",
 			wantTo:   "cmd/main.go",
 		},
@@ -39,7 +42,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "pkg/foo.go",
 			to:       "pkg/foo.go",
 			typ:      TypeCall,
-			wantID:   "pkg/foo.go:pkg/foo.go:call",
+			wantID:   "pkg/foo.go" + sep + "pkg/foo.go" + sep + "call",
 			wantFrom: "pkg/foo.go",
 			wantTo:   "pkg/foo.go",
 		},
@@ -48,7 +51,7 @@ func TestNewConnection(t *testing.T) {
 			from:     "models/base.go",
 			to:       "models/user.go",
 			typ:      TypeInheritance,
-			wantID:   "models/base.go:models/user.go:inheritance",
+			wantID:   "models/base.go" + sep + "models/user.go" + sep + "inheritance",
 			wantFrom: "models/base.go",
 			wantTo:   "models/user.go",
 		},
@@ -252,5 +255,211 @@ func TestConnectionConcurrency(t *testing.T) {
 	expected := goroutines * iterations
 	if count != expected {
 		t.Errorf("ExerciseCount() = %d, want %d (exact due to locking)", count, expected)
+	}
+}
+
+// TestIDCollisionWithColonPaths verifies that paths containing colons
+// produce distinct IDs (regression test for the colon separator bug).
+func TestIDCollisionWithColonPaths(t *testing.T) {
+	// These paths would produce the same ID if using ":" as separator:
+	// "a:b" + "c" = "a:b:c:import"
+	// "a" + "b:c" = "a:b:c:import"
+	c1 := NewConnection("a:b", "c", TypeImport)
+	c2 := NewConnection("a", "b:c", TypeImport)
+
+	if c1.ID() == c2.ID() {
+		t.Errorf("ID collision: paths with colons should produce different IDs\n"+
+			"c1 (from='a:b', to='c'): %q\n"+
+			"c2 (from='a', to='b:c'): %q", c1.ID(), c2.ID())
+	}
+
+	// Additional cases with colons
+	cases := []struct {
+		from1, to1, from2, to2 string
+	}{
+		{"a:", "b", "a", ":b"},
+		{":a", "b", "", "a:b"},
+		{"a:b:c", "d", "a", "b:c:d"},
+		{"C:\\Windows\\foo.go", "bar.go", "C", "\\Windows\\foo.go:bar.go"},
+	}
+
+	for _, tc := range cases {
+		c1 := NewConnection(tc.from1, tc.to1, TypeImport)
+		c2 := NewConnection(tc.from2, tc.to2, TypeImport)
+		if c1.ID() == c2.ID() {
+			t.Errorf("ID collision: (%q,%q) vs (%q,%q) both produce %q",
+				tc.from1, tc.to1, tc.from2, tc.to2, c1.ID())
+		}
+	}
+}
+
+// TestEmptyPaths verifies behavior with empty path strings.
+func TestEmptyPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		from string
+		to   string
+	}{
+		{"empty from", "", "b.go"},
+		{"empty to", "a.go", ""},
+		{"both empty", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewConnection(tt.from, tt.to, TypeImport)
+			// Should not panic
+			_ = c.ID()
+			_ = c.From()
+			_ = c.To()
+
+			// Verify values are preserved
+			if c.From() != tt.from {
+				t.Errorf("From() = %q, want %q", c.From(), tt.from)
+			}
+			if c.To() != tt.to {
+				t.Errorf("To() = %q, want %q", c.To(), tt.to)
+			}
+
+			// Graph operations should handle empty paths
+			g := NewGraph()
+			added := g.Add(c)
+			if added == nil {
+				t.Error("Graph.Add() returned nil for empty path connection")
+			}
+			if g.Count() != 1 {
+				t.Errorf("Count() = %d, want 1", g.Count())
+			}
+		})
+	}
+}
+
+// TestVeryLongPaths verifies behavior with extremely long path strings.
+func TestVeryLongPaths(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping long path test in short mode")
+	}
+
+	// Create a 100KB path
+	longPath := make([]byte, 100*1024)
+	for i := range longPath {
+		longPath[i] = 'a' + byte(i%26)
+	}
+	longPathStr := string(longPath)
+
+	c := NewConnection(longPathStr, "b.go", TypeImport)
+
+	// Should not panic
+	id := c.ID()
+	from := c.From()
+
+	// Verify path is preserved
+	if from != longPathStr {
+		t.Error("From() does not match long path (length check)")
+	}
+
+	// ID should contain the full path
+	if len(id) < len(longPathStr) {
+		t.Errorf("ID length %d is less than path length %d", len(id), len(longPathStr))
+	}
+
+	// Graph operations should work
+	g := NewGraph()
+	added := g.Add(c)
+	if added == nil {
+		t.Error("Graph.Add() returned nil for long path connection")
+	}
+
+	retrieved := g.GetByEndpoints(longPathStr, "b.go", TypeImport)
+	if retrieved != c {
+		t.Error("GetByEndpoints failed for long path")
+	}
+}
+
+// TestUnicodePaths verifies behavior with Unicode characters in paths.
+func TestUnicodePaths(t *testing.T) {
+	tests := []struct {
+		name string
+		from string
+		to   string
+	}{
+		{"Japanese", "ファイル/main.go", "パッケージ/util.go"},
+		{"Chinese", "文件/main.go", "包/util.go"},
+		{"emoji", "📁/main.go", "📦/util.go"},
+		{"mixed scripts", "日本語/中文/한국어/main.go", "output.go"},
+		{"combining characters", "cafe\u0301/main.go", "output.go"}, // café with combining acute
+		{"ZWJ sequence", "👨‍👩‍👧‍👦/family.go", "output.go"},
+		{"RTL", "ملف/main.go", "output.go"}, // Arabic
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := NewConnection(tt.from, tt.to, TypeImport)
+
+			// Should not panic
+			_ = c.ID()
+
+			// Verify values are preserved
+			if c.From() != tt.from {
+				t.Errorf("From() = %q, want %q", c.From(), tt.from)
+			}
+			if c.To() != tt.to {
+				t.Errorf("To() = %q, want %q", c.To(), tt.to)
+			}
+
+			// Graph operations should work
+			g := NewGraph()
+			g.Add(c)
+
+			retrieved := g.GetByEndpoints(tt.from, tt.to, TypeImport)
+			if retrieved == nil {
+				t.Error("GetByEndpoints failed for Unicode path")
+			}
+
+			fromConns := g.FromFile(tt.from)
+			if len(fromConns) != 1 {
+				t.Errorf("FromFile returned %d connections, want 1", len(fromConns))
+			}
+		})
+	}
+
+	// Test that different Unicode normalizations produce different connections
+	// NFC vs NFD for "café"
+	nfc := "caf\u00e9/main.go"  // precomposed é
+	nfd := "cafe\u0301/main.go" // e + combining acute
+
+	c1 := NewConnection(nfc, "out.go", TypeImport)
+	c2 := NewConnection(nfd, "out.go", TypeImport)
+
+	// These should be different connections (no normalization applied)
+	if c1.ID() == c2.ID() {
+		t.Log("Note: NFC and NFD forms produce same ID - acceptable but worth knowing")
+	}
+}
+
+// TestExerciseCountNoOverflow verifies that exercise count doesn't wrap to negative.
+func TestExerciseCountNoOverflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping overflow test in short mode")
+	}
+
+	c := NewConnection("a.go", "b.go", TypeImport)
+
+	// Exercise many times to approach potential overflow
+	// We can't actually reach MaxInt in a reasonable time, so we
+	// verify the mechanism works correctly for a large number
+	const iterations = 100000
+	for i := 0; i < iterations; i++ {
+		c.Exercise()
+	}
+
+	count := c.ExerciseCount()
+	if count != iterations {
+		t.Errorf("ExerciseCount() = %d, want %d", count, iterations)
+	}
+
+	// Verify count is positive
+	if count < 0 {
+		t.Errorf("ExerciseCount() wrapped to negative: %d", count)
 	}
 }

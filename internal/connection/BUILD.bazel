@@ -14,7 +14,22 @@ go_test(
     name = "connection_test",
     srcs = [
         "connection_test.go",
+        "graph_property_test.go",
         "graph_test.go",
     ],
     embed = [":connection"],
+)
+
+go_test(
+    name = "connection_stress_test",
+    srcs = ["graph_stress_test.go"],
+    embed = [":connection"],
+    tags = ["manual"],  # Run explicitly: bazel test //internal/connection:connection_stress_test
+)
+
+go_test(
+    name = "connection_fuzz_test",
+    srcs = ["graph_fuzz_test.go"],
+    embed = [":connection"],
+    tags = ["manual"],  # Run via go test -fuzz
 )

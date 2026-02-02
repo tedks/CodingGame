@@ -110,9 +110,14 @@ func NewConnection(from, to string, typ Type) *Connection {
 	}
 }
 
+// idSeparator is used to separate components in connection IDs.
+// Using ASCII Unit Separator (0x1F) instead of ":" to avoid collision
+// when paths contain colons (e.g., "C:\Windows" or "a:b" URLs).
+const idSeparator = "\x1F"
+
 // makeID creates a stable unique identifier for a connection.
 func makeID(from, to string, typ Type) string {
-	return from + ":" + to + ":" + typ.String()
+	return from + idSeparator + to + idSeparator + typ.String()
 }
 
 // normalizePath converts backslashes to forward slashes for cross-platform consistency.

@@ -44,12 +44,21 @@ type Adapter struct {
 }
 
 // sessionState tracks the state of a debug session.
+//
+// Concurrency:
+// - rpcMu protects encoder and decoder for serialized RPC access
+// - rpcID is atomic for ID generation without lock
 type sessionState struct {
 	session *debug.Session
 	cmd     *exec.Cmd    // dlv process
 	conn    net.Conn     // RPC connection
 	rpcID   atomic.Int64 // RPC request ID counter
 	port    int          // dlv API port
+
+	// RPC serialization
+	rpcMu   sync.Mutex
+	encoder *json.Encoder
+	decoder *json.Decoder
 }
 
 // NewAdapter creates a new delve adapter.
@@ -132,6 +141,8 @@ func (a *Adapter) Launch(program string, args []string, cwd string) (*debug.Sess
 		cmd:     cmd,
 		conn:    conn,
 		port:    port,
+		encoder: json.NewEncoder(conn),
+		decoder: json.NewDecoder(conn),
 	}
 
 	a.sessions[sessionID] = state
@@ -196,6 +207,8 @@ func (a *Adapter) Attach(pid int) (*debug.Session, error) {
 		cmd:     cmd,
 		conn:    conn,
 		port:    port,
+		encoder: json.NewEncoder(conn),
+		decoder: json.NewDecoder(conn),
 	}
 
 	a.sessions[sessionID] = state
@@ -221,6 +234,8 @@ func (a *Adapter) Connect(address string) (*debug.Session, error) {
 	state := &sessionState{
 		session: session,
 		conn:    conn,
+		encoder: json.NewEncoder(conn),
+		decoder: json.NewDecoder(conn),
 	}
 
 	a.sessions[sessionID] = state
@@ -593,6 +608,8 @@ func (a *Adapter) updateStackFrames(session *debug.Session, state *sessionState)
 }
 
 // callRPC makes a JSON-RPC call to delve.
+//
+// Concurrency: Uses state.rpcMu to serialize RPC calls.
 func (a *Adapter) callRPC(state *sessionState, method string, args interface{}) (map[string]interface{}, error) {
 	id := state.rpcID.Add(1)
 
@@ -603,19 +620,16 @@ func (a *Adapter) callRPC(state *sessionState, method string, args interface{}) 
 		"params":  []interface{}{args},
 	}
 
-	data, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal RPC request: %w", err)
-	}
+	// Serialize all RPC communication
+	state.rpcMu.Lock()
+	defer state.rpcMu.Unlock()
 
-	// Write request
-	_, err = state.conn.Write(data)
-	if err != nil {
+	// Use persistent encoder
+	if err := state.encoder.Encode(request); err != nil {
 		return nil, fmt.Errorf("failed to send RPC request: %w", err)
 	}
 
-	// Read response
-	decoder := json.NewDecoder(state.conn)
+	// Use persistent decoder
 	var response struct {
 		JSONRPC string                 `json:"jsonrpc"`
 		ID      int64                  `json:"id"`
@@ -626,11 +640,16 @@ func (a *Adapter) callRPC(state *sessionState, method string, args interface{}) 
 		} `json:"error"`
 	}
 
-	if err := decoder.Decode(&response); err != nil {
+	if err := state.decoder.Decode(&response); err != nil {
 		if err == io.EOF {
 			return nil, errors.New("connection closed")
 		}
 		return nil, fmt.Errorf("failed to decode RPC response: %w", err)
+	}
+
+	// Verify response ID matches request ID
+	if response.ID != id {
+		return nil, fmt.Errorf("RPC response ID mismatch: expected %d, got %d", id, response.ID)
 	}
 
 	if response.Error != nil {

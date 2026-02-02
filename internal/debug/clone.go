@@ -1,5 +1,8 @@
 package debug
 
+// MaxCloneDepth limits recursion depth when cloning nested variables.
+const MaxCloneDepth = 100
+
 func cloneFrames(frames []*Frame) []*Frame {
 	if frames == nil {
 		return nil
@@ -23,22 +26,36 @@ func cloneFrame(frame *Frame) *Frame {
 }
 
 func cloneVariables(vars []*Variable) []*Variable {
+	return cloneVariablesWithDepth(vars, 0)
+}
+
+func cloneVariablesWithDepth(vars []*Variable, depth int) []*Variable {
 	if vars == nil {
 		return nil
 	}
 	cloned := make([]*Variable, len(vars))
 	for i, v := range vars {
-		cloned[i] = cloneVariable(v)
+		cloned[i] = cloneVariableWithDepth(v, depth)
 	}
 	return cloned
 }
 
 func cloneVariable(v *Variable) *Variable {
+	return cloneVariableWithDepth(v, 0)
+}
+
+func cloneVariableWithDepth(v *Variable, depth int) *Variable {
 	if v == nil {
 		return nil
 	}
+	if depth >= MaxCloneDepth {
+		cloned := *v
+		cloned.Children = nil
+		cloned.HasMore = true
+		return &cloned
+	}
 	cloned := *v
-	cloned.Children = cloneVariables(v.Children)
+	cloned.Children = cloneVariablesWithDepth(v.Children, depth+1)
 	return &cloned
 }
 
