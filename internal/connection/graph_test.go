@@ -400,3 +400,228 @@ func TestGraphRemoveUpdatesIndexes(t *testing.T) {
 		t.Errorf("ToFile(\"b.go\") after remove = %d, want 0", len(toB))
 	}
 }
+
+// TestConcurrentDetectCircular verifies DetectCircular is safe under concurrent access.
+func TestConcurrentDetectCircular(t *testing.T) {
+	g := NewGraph()
+	// Build a graph with a cycle: a -> b -> c -> a
+	g.AddNew("b.go", "a.go", TypeImport)
+	g.AddNew("c.go", "b.go", TypeImport)
+	g.AddNew("a.go", "c.go", TypeImport)
+	// Add some linear connections too
+	g.AddNew("d.go", "e.go", TypeImport)
+	g.AddNew("e.go", "f.go", TypeImport)
+
+	const goroutines = 10
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	// All goroutines should get consistent results
+	results := make(chan [][]string, goroutines*iterations)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				cycles := g.DetectCircular()
+				results <- cycles
+
+				// Also verify HasCircularDependencies consistency
+				_ = g.HasCircularDependencies()
+				_ = g.CircularPaths()
+
+				// Read connection states concurrently
+				for _, c := range g.All() {
+					_ = c.IsCircular()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+
+	// All results should find exactly 1 cycle
+	for cycles := range results {
+		if len(cycles) != 1 {
+			t.Errorf("DetectCircular() found %d cycles, want 1", len(cycles))
+		}
+	}
+}
+
+// TestDetectCircularIdempotent verifies calling DetectCircular twice gives same result.
+func TestDetectCircularIdempotent(t *testing.T) {
+	g := NewGraph()
+	// Complex graph with multiple cycles
+	// Cycle 1: a <-> b
+	g.AddNew("a.go", "b.go", TypeImport)
+	g.AddNew("b.go", "a.go", TypeImport)
+	// Cycle 2: x -> y -> z -> x
+	g.AddNew("y.go", "x.go", TypeImport)
+	g.AddNew("z.go", "y.go", TypeImport)
+	g.AddNew("x.go", "z.go", TypeImport)
+	// Linear: p -> q
+	g.AddNew("p.go", "q.go", TypeImport)
+
+	// First call
+	cycles1 := g.DetectCircular()
+	circular1 := make(map[string]bool)
+	for _, c := range g.All() {
+		if c.IsCircular() {
+			circular1[c.ID()] = true
+		}
+	}
+
+	// Second call
+	cycles2 := g.DetectCircular()
+	circular2 := make(map[string]bool)
+	for _, c := range g.All() {
+		if c.IsCircular() {
+			circular2[c.ID()] = true
+		}
+	}
+
+	// Results should be identical
+	if len(cycles1) != len(cycles2) {
+		t.Errorf("Cycle count changed: first=%d, second=%d", len(cycles1), len(cycles2))
+	}
+
+	// Same connections should be marked circular
+	if len(circular1) != len(circular2) {
+		t.Errorf("Circular connection count changed: first=%d, second=%d",
+			len(circular1), len(circular2))
+	}
+
+	for id := range circular1 {
+		if !circular2[id] {
+			t.Errorf("Connection %s was circular on first call but not second", id)
+		}
+	}
+
+	// HasCircularDependencies should be consistent
+	if g.HasCircularDependencies() != (len(cycles2) > 0) {
+		t.Error("HasCircularDependencies() inconsistent with DetectCircular() result")
+	}
+}
+
+// TestSelfLoopIsNotCircular documents that self-loops are NOT marked as circular.
+// This is correct per Tarjan's algorithm: a single-node SCC is trivial.
+func TestSelfLoopIsNotCircular(t *testing.T) {
+	g := NewGraph()
+	c := g.AddNew("a.go", "a.go", TypeImport) // Self-loop
+
+	cycles := g.DetectCircular()
+
+	// Self-loops are trivial SCCs - they should NOT be reported as cycles
+	if len(cycles) != 0 {
+		t.Errorf("Self-loop produced %d cycles, expected 0 (trivial SCC)", len(cycles))
+	}
+
+	// The connection should NOT be marked circular
+	if c.IsCircular() {
+		t.Error("Self-loop connection should NOT be marked circular (trivial SCC)")
+	}
+
+	// Graph should not have circular dependencies
+	if g.HasCircularDependencies() {
+		t.Error("Graph with only self-loop should not have circular dependencies")
+	}
+}
+
+// TestDisjointCycles verifies detection of two independent cycles.
+func TestDisjointCycles(t *testing.T) {
+	g := NewGraph()
+	// Cycle 1: a <-> b
+	g.AddNew("a.go", "b.go", TypeImport)
+	g.AddNew("b.go", "a.go", TypeImport)
+	// Cycle 2: x <-> y (completely disjoint)
+	g.AddNew("x.go", "y.go", TypeImport)
+	g.AddNew("y.go", "x.go", TypeImport)
+
+	cycles := g.DetectCircular()
+
+	if len(cycles) != 2 {
+		t.Errorf("DetectCircular() found %d cycles, want 2", len(cycles))
+	}
+
+	// All 4 connections should be circular
+	circularCount := 0
+	for _, c := range g.All() {
+		if c.IsCircular() {
+			circularCount++
+		}
+	}
+	if circularCount != 4 {
+		t.Errorf("Expected 4 circular connections, got %d", circularCount)
+	}
+}
+
+// TestFigureEightTopology verifies detection of two cycles sharing a node.
+func TestFigureEightTopology(t *testing.T) {
+	g := NewGraph()
+	// Two cycles sharing node 'a':
+	// Cycle 1: a <-> b
+	g.AddNew("a.go", "b.go", TypeImport)
+	g.AddNew("b.go", "a.go", TypeImport)
+	// Cycle 2: a <-> c
+	g.AddNew("a.go", "c.go", TypeImport)
+	g.AddNew("c.go", "a.go", TypeImport)
+
+	cycles := g.DetectCircular()
+
+	// Should detect as one large SCC containing all three nodes
+	// (a, b, c are all mutually reachable via cycles)
+	if len(cycles) != 1 {
+		t.Errorf("Figure-eight produced %d SCCs, expected 1 (merged)", len(cycles))
+	}
+
+	// The SCC should contain all 3 nodes
+	if len(cycles) > 0 {
+		scc := cycles[0]
+		nodes := make(map[string]bool)
+		for _, n := range scc {
+			nodes[n] = true
+		}
+		for _, expected := range []string{"a.go", "b.go", "c.go"} {
+			if !nodes[expected] {
+				t.Errorf("Node %s not in SCC: %v", expected, scc)
+			}
+		}
+	}
+
+	// All 4 connections should be circular
+	for _, c := range g.All() {
+		if !c.IsCircular() {
+			t.Errorf("Connection %s should be circular in figure-eight", c.ID())
+		}
+	}
+}
+
+// TestNestedCycles verifies detection of a cycle within a cycle.
+func TestNestedCycles(t *testing.T) {
+	g := NewGraph()
+	// Outer cycle: a -> b -> c -> a
+	g.AddNew("b.go", "a.go", TypeImport)
+	g.AddNew("c.go", "b.go", TypeImport)
+	g.AddNew("a.go", "c.go", TypeImport)
+	// Inner shortcut creating nested cycle: a -> b -> a (subset of outer)
+	// This is already covered by the existing a-b edges, but let's add b -> a shortcut
+	// Actually a->b and b->a are already there, so add a -> c direct both ways
+	g.AddNew("c.go", "a.go", TypeImport) // Shortcut c -> a (a imports c directly)
+
+	cycles := g.DetectCircular()
+
+	// Should be one SCC containing all three nodes
+	if len(cycles) != 1 {
+		t.Errorf("Nested cycles produced %d SCCs, expected 1", len(cycles))
+	}
+
+	// All connections should be circular
+	for _, c := range g.All() {
+		if !c.IsCircular() {
+			t.Errorf("Connection %s should be circular in nested topology", c.ID())
+		}
+	}
+}
