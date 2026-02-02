@@ -2,6 +2,7 @@ package production
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -439,5 +440,126 @@ func TestRegistryErrorsCleared(t *testing.T) {
 
 	if r2.HasErrors() {
 		t.Error("new registry should not have errors")
+	}
+}
+
+func TestRegistry_ConcurrentRefresh(t *testing.T) {
+	// Test that multiple goroutines can call Refresh() simultaneously without races.
+	r := NewRegistry()
+
+	mock := &mockDiscoverer{
+		name: "test",
+		services: []*Service{
+			NewService("api", "API", ServiceTypeHTTP, "http://localhost"),
+		},
+	}
+	r.RegisterDiscoverer(mock)
+
+	const goroutines = 10
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	// Spawn multiple goroutines that concurrently call Refresh
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				count := r.Refresh()
+				if count != 1 {
+					t.Errorf("expected 1 service, got %d", count)
+				}
+
+				// Also exercise read methods concurrently
+				_ = r.Count()
+				_ = r.GetAll()
+				_ = r.Get("api")
+			}
+		}()
+	}
+
+	// Wait for all goroutines with timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(10 * time.Second):
+		t.Fatal("concurrent refresh test timed out - possible deadlock")
+	}
+}
+
+// panicListener is a test listener that panics when notified.
+type panicListener struct {
+	panicMsg string
+}
+
+func (l *panicListener) OnServicesChanged(services []*Service) {
+	panic(l.panicMsg)
+}
+
+func TestRegistry_ListenerPanicIsolation(t *testing.T) {
+	// Test that one listener panicking doesn't prevent other listeners from being notified.
+	r := NewRegistry()
+
+	// First listener will panic
+	panicL := &panicListener{panicMsg: "intentional panic for testing"}
+	r.AddListener(panicL)
+
+	// Second listener should still be notified
+	secondCalled := make(chan []*Service, 1)
+	secondL := &testListener{
+		onChanged: func(services []*Service) {
+			select {
+			case secondCalled <- services:
+			default:
+			}
+		},
+	}
+	r.AddListener(secondL)
+
+	// Third listener should also be notified
+	thirdCalled := make(chan []*Service, 1)
+	thirdL := &testListener{
+		onChanged: func(services []*Service) {
+			select {
+			case thirdCalled <- services:
+			default:
+			}
+		},
+	}
+	r.AddListener(thirdL)
+
+	mock := &mockDiscoverer{
+		name: "test",
+		services: []*Service{
+			NewService("api", "API", ServiceTypeHTTP, "http://localhost"),
+		},
+	}
+	r.RegisterDiscoverer(mock)
+	r.Refresh()
+
+	// Both non-panicking listeners should be called despite the panicking one
+	select {
+	case services := <-secondCalled:
+		if len(services) != 1 {
+			t.Errorf("second listener got %d services, expected 1", len(services))
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("second listener was not called within timeout")
+	}
+
+	select {
+	case services := <-thirdCalled:
+		if len(services) != 1 {
+			t.Errorf("third listener got %d services, expected 1", len(services))
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("third listener was not called within timeout")
 	}
 }
