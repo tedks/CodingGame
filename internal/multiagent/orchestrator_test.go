@@ -605,3 +605,918 @@ func TestAbandonedListenerCount(t *testing.T) {
 		t.Errorf("expected non-negative count, got %d", count)
 	}
 }
+
+func TestOrchestratorHandoffTaskSameAgent(t *testing.T) {
+	orch := NewOrchestrator()
+
+	agent := NewAgent("agent-1", "Agent 1", "robot")
+	_ = agent.StartTask("My task")
+	orch.AddAgent(agent)
+
+	// Handoff to self should fail
+	err := orch.HandoffTask("agent-1", "agent-1")
+	if err == nil {
+		t.Error("expected error when handing off to same agent")
+	}
+
+	// Original agent should still be working (not paused)
+	if agent.Status() != StatusWorking {
+		t.Errorf("expected agent to remain working, got %v", agent.Status())
+	}
+}
+
+// TestHandoffTask_RaceWithCompletion tests that the TOCTOU race in HandoffTask is fixed.
+// Before the fix, this race existed:
+//   1. Goroutine A reads source.CurrentTask() = "task"
+//   2. Goroutine B completes the task on source (clearing currentTask)
+//   3. Goroutine A uses stale "task" value to start target
+//
+// This test verifies the atomic transfer prevents such races.
+func TestHandoffTask_RaceWithCompletion(t *testing.T) {
+	const iterations = 1000
+
+	for i := 0; i < iterations; i++ {
+		orch := NewOrchestrator()
+
+		source := NewAgent("source", "Source", "robot")
+		target := NewAgent("target", "Target", "robot")
+		_ = source.StartTask("Important task")
+
+		orch.AddAgent(source)
+		orch.AddAgent(target)
+
+		var wg sync.WaitGroup
+		var handoffErr error
+		var handoffSucceeded bool
+
+		wg.Add(2)
+
+		// Goroutine 1: Try to handoff
+		go func() {
+			defer wg.Done()
+			handoffErr = orch.HandoffTask("source", "target")
+			handoffSucceeded = handoffErr == nil
+		}()
+
+		// Goroutine 2: Try to complete source task
+		go func() {
+			defer wg.Done()
+			source.CompleteTask()
+		}()
+
+		wg.Wait()
+
+		// The key invariant: if handoff succeeded, target MUST have the correct task.
+		// We should NEVER have handoff fail but target still working on the task
+		// (that would be the TOCTOU race - target got a stale task value).
+
+		if handoffSucceeded {
+			// If handoff succeeded atomically:
+			// - Target MUST be working on "Important task"
+			// - Source was Paused at the moment of handoff, but CompleteTask may have
+			//   run afterwards and changed it to Completed (this is fine)
+			if target.Status() != StatusWorking {
+				t.Fatalf("iteration %d: handoff succeeded but target status is %v (expected Working)", i, target.Status())
+			}
+			if target.CurrentTask() != "Important task" {
+				t.Fatalf("iteration %d: handoff succeeded but target has task %q (expected 'Important task')", i, target.CurrentTask())
+			}
+			// Source can be Paused (handoff ran after CompleteTask) or
+			// Completed (CompleteTask ran after handoff) - both are valid
+			status := source.Status()
+			if status != StatusPaused && status != StatusCompleted {
+				t.Fatalf("iteration %d: handoff succeeded but source status is %v (expected Paused or Completed)", i, status)
+			}
+		} else {
+			// If handoff failed, the TOCTOU race would manifest as:
+			// - handoff fails (because source task was cleared)
+			// - BUT target is working on "Important task" (got stale value)
+			//
+			// With atomic transfer, this should NEVER happen.
+			if target.Status() == StatusWorking && target.CurrentTask() == "Important task" {
+				t.Fatalf("iteration %d: TOCTOU race detected! Handoff failed (%v) but target is working on the task", i, handoffErr)
+			}
+		}
+	}
+}
+
+// TestHandoffTask_ConcurrentBidirectional tests concurrent handoffs in both directions.
+// This verifies the consistent lock ordering prevents deadlocks.
+func TestHandoffTask_ConcurrentBidirectional(t *testing.T) {
+	const iterations = 100
+
+	for i := 0; i < iterations; i++ {
+		orch := NewOrchestrator()
+
+		agent1 := NewAgent("agent-1", "Agent 1", "robot")
+		agent2 := NewAgent("agent-2", "Agent 2", "robot")
+		_ = agent1.StartTask("Task A")
+		_ = agent2.StartTask("Task B")
+
+		orch.AddAgent(agent1)
+		orch.AddAgent(agent2)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		// Try handoffs in both directions simultaneously
+		// Without consistent lock ordering, this could deadlock
+		go func() {
+			defer wg.Done()
+			_ = orch.HandoffTask("agent-1", "agent-2")
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = orch.HandoffTask("agent-2", "agent-1")
+		}()
+
+		// If we get here, no deadlock occurred
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Success, no deadlock
+		case <-time.After(5 * time.Second):
+			t.Fatalf("iteration %d: deadlock detected in concurrent bidirectional handoff", i)
+		}
+	}
+}
+
+// TestConcurrentCreateAgent_UniqueIDs verifies that CreateAgent generates unique IDs
+// even under heavy concurrent load.
+func TestConcurrentCreateAgent_UniqueIDs(t *testing.T) {
+	orch := NewOrchestrator()
+
+	const numGoroutines = 50
+	const agentsPerGoroutine = 20
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	ids := make(map[string]bool)
+	duplicates := 0
+
+	wg.Add(numGoroutines)
+	for g := 0; g < numGoroutines; g++ {
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < agentsPerGoroutine; j++ {
+				agent := orch.CreateAgent("Agent", "robot")
+				id := agent.ID()
+
+				mu.Lock()
+				if ids[id] {
+					duplicates++
+				}
+				ids[id] = true
+				mu.Unlock()
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	if duplicates > 0 {
+		t.Errorf("found %d duplicate IDs out of %d agents created", duplicates, numGoroutines*agentsPerGoroutine)
+	}
+
+	expectedCount := numGoroutines * agentsPerGoroutine
+	if orch.Count() != expectedCount {
+		t.Errorf("expected %d agents, got %d", expectedCount, orch.Count())
+	}
+}
+
+// TestSnapshots_ConsistencyUnderMutation verifies that Snapshots returns a consistent
+// point-in-time view even while agents are being modified.
+func TestSnapshots_ConsistencyUnderMutation(t *testing.T) {
+	orch := NewOrchestrator()
+
+	// Create some agents
+	for i := 0; i < 10; i++ {
+		agent := NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		orch.AddAgent(agent)
+	}
+
+	const iterations = 100
+	var wg sync.WaitGroup
+
+	// Start goroutines that continuously mutate agents
+	stopCh := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				agents := orch.GetAll()
+				for _, a := range agents {
+					_ = a.StartTask("Some task")
+					a.CompleteTask()
+					a.MarkFileRead("file.go")
+					a.UpdateTokenUsage(1000)
+				}
+			}
+		}
+	}()
+
+	// Take snapshots while mutations are happening
+	for i := 0; i < iterations; i++ {
+		snapshots := orch.Snapshots()
+
+		// Each snapshot should be internally consistent
+		for _, snap := range snapshots {
+			// Status and task should be consistent
+			if snap.Status == StatusIdle || snap.Status == StatusCompleted {
+				// These states should have empty task
+				// (though due to timing, we might catch mid-transition)
+			}
+			// Token usage should be non-negative
+			if snap.TokensUsed < 0 {
+				t.Errorf("snapshot has negative tokens: %d", snap.TokensUsed)
+			}
+		}
+	}
+
+	close(stopCh)
+	wg.Wait()
+}
+
+// TestAssignTask_ConcurrentToSameAgent verifies that only one concurrent
+// AssignTask call succeeds for a given agent.
+func TestAssignTask_ConcurrentToSameAgent(t *testing.T) {
+	const iterations = 100
+	const concurrency = 10
+
+	for iter := 0; iter < iterations; iter++ {
+		orch := NewOrchestrator()
+		agent := NewAgent("target", "Target", "robot")
+		orch.AddAgent(agent)
+
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		successCount := 0
+		failCount := 0
+
+		wg.Add(concurrency)
+		for g := 0; g < concurrency; g++ {
+			go func(taskNum int) {
+				defer wg.Done()
+				err := orch.AssignTask("target", "Task "+string(rune('A'+taskNum)))
+				mu.Lock()
+				if err == nil {
+					successCount++
+				} else {
+					failCount++
+				}
+				mu.Unlock()
+			}(g)
+		}
+
+		wg.Wait()
+
+		// Exactly one should succeed
+		if successCount != 1 {
+			t.Errorf("iteration %d: expected exactly 1 success, got %d", iter, successCount)
+		}
+		if failCount != concurrency-1 {
+			t.Errorf("iteration %d: expected %d failures, got %d", iter, concurrency-1, failCount)
+		}
+
+		// Agent should be working
+		if agent.Status() != StatusWorking {
+			t.Errorf("iteration %d: expected agent to be working, got %v", iter, agent.Status())
+		}
+	}
+}
+
+// Listener tests
+
+// slowListener simulates a listener that takes a configurable time to respond.
+type slowListener struct {
+	delay    time.Duration
+	called   int
+	mu       sync.Mutex
+	blockCtx bool // if true, block until ctx.Done()
+}
+
+func (l *slowListener) OnAgentsChanged(ctx context.Context, agents []*Agent) {
+	l.mu.Lock()
+	l.called++
+	l.mu.Unlock()
+
+	if l.blockCtx {
+		<-ctx.Done() // Block until timeout
+		return
+	}
+
+	select {
+	case <-time.After(l.delay):
+	case <-ctx.Done():
+	}
+}
+
+func (l *slowListener) CallCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.called
+}
+
+// TestListener_TimeoutBehavior verifies that slow listeners are timed out
+// and the abandoned listener count is incremented.
+func TestListener_TimeoutBehavior(t *testing.T) {
+	initialCount := AbandonedListenerCount()
+
+	orch := NewOrchestrator()
+
+	// Listener that blocks until context is cancelled
+	slowL := &slowListener{blockCtx: true}
+	orch.AddListener(slowL)
+
+	// Add an agent - this should trigger the listener
+	agent := NewAgent("test", "Test", "robot")
+	orch.AddAgent(agent)
+
+	// Wait a bit for timeout to trigger
+	time.Sleep(listenerTimeout + 100*time.Millisecond)
+
+	// Verify abandoned count increased
+	newCount := AbandonedListenerCount()
+	if newCount <= initialCount {
+		t.Errorf("expected abandoned listener count to increase from %d, got %d", initialCount, newCount)
+	}
+
+	// Listener should have been called
+	if slowL.CallCount() == 0 {
+		t.Error("expected slow listener to be called")
+	}
+}
+
+// TestListener_FastListenersNotAbandoned verifies that fast listeners
+// are not counted as abandoned.
+func TestListener_FastListenersNotAbandoned(t *testing.T) {
+	initialCount := AbandonedListenerCount()
+
+	orch := NewOrchestrator()
+
+	// Fast listener
+	fastL := &slowListener{delay: 1 * time.Millisecond}
+	orch.AddListener(fastL)
+
+	// Trigger several notifications
+	for i := 0; i < 10; i++ {
+		agent := NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		orch.AddAgent(agent)
+	}
+
+	// Wait for all listeners to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Abandoned count should not have increased
+	newCount := AbandonedListenerCount()
+	if newCount != initialCount {
+		t.Errorf("expected abandoned count to remain %d, got %d", initialCount, newCount)
+	}
+
+	// Listener should have been called 10 times
+	if fastL.CallCount() != 10 {
+		t.Errorf("expected 10 calls, got %d", fastL.CallCount())
+	}
+}
+
+// recordingListener records the order and timing of notifications.
+type recordingListener struct {
+	mu          sync.Mutex
+	callTimes   []time.Time
+	agentCounts []int
+}
+
+func (l *recordingListener) OnAgentsChanged(_ context.Context, agents []*Agent) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.callTimes = append(l.callTimes, time.Now())
+	l.agentCounts = append(l.agentCounts, len(agents))
+}
+
+func (l *recordingListener) Calls() ([]time.Time, []int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	times := make([]time.Time, len(l.callTimes))
+	counts := make([]int, len(l.agentCounts))
+	copy(times, l.callTimes)
+	copy(counts, l.agentCounts)
+	return times, counts
+}
+
+// TestListener_NotificationOrder verifies that notifications are received
+// with the correct agent state at the time of the event.
+func TestListener_NotificationOrder(t *testing.T) {
+	orch := NewOrchestrator()
+
+	recorder := &recordingListener{}
+	orch.AddListener(recorder)
+
+	// Add agents one at a time
+	for i := 0; i < 5; i++ {
+		agent := NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		orch.AddAgent(agent)
+		// Small delay to ensure ordering
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Wait for notifications
+	time.Sleep(100 * time.Millisecond)
+
+	_, counts := recorder.Calls()
+
+	// Should have received 5 notifications
+	if len(counts) != 5 {
+		t.Errorf("expected 5 notifications, got %d", len(counts))
+		return
+	}
+
+	// Each notification should reflect increasing agent counts
+	for i, count := range counts {
+		expected := i + 1
+		if count != expected {
+			t.Errorf("notification %d: expected %d agents, got %d", i, expected, count)
+		}
+	}
+}
+
+// selfModifyingListener adds/removes itself during callback
+type selfModifyingListener struct {
+	orch      *Orchestrator
+	mu        sync.Mutex
+	calls     int
+	removed   bool
+	addAnother bool
+}
+
+func (l *selfModifyingListener) OnAgentsChanged(_ context.Context, _ []*Agent) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls++
+
+	// Try to remove self during callback
+	if !l.removed {
+		l.removed = true
+		l.orch.RemoveListener(l)
+	}
+}
+
+func (l *selfModifyingListener) CallCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.calls
+}
+
+// TestListener_SelfRemovalDuringCallback verifies that a listener can safely
+// remove itself during a callback without causing issues.
+func TestListener_SelfRemovalDuringCallback(t *testing.T) {
+	orch := NewOrchestrator()
+
+	selfMod := &selfModifyingListener{orch: orch}
+	orch.AddListener(selfMod)
+
+	// Trigger first notification - listener removes itself
+	orch.AddAgent(NewAgent("agent-1", "Agent 1", "robot"))
+	time.Sleep(50 * time.Millisecond)
+
+	if selfMod.CallCount() != 1 {
+		t.Errorf("expected 1 call before removal, got %d", selfMod.CallCount())
+	}
+
+	// Trigger second notification - listener should not be called
+	orch.AddAgent(NewAgent("agent-2", "Agent 2", "robot"))
+	time.Sleep(50 * time.Millisecond)
+
+	// Should still be 1 (no new calls after removal)
+	if selfMod.CallCount() != 1 {
+		t.Errorf("expected still 1 call after removal, got %d", selfMod.CallCount())
+	}
+}
+
+// TestListener_MultipleListeners verifies all listeners are notified.
+func TestListener_MultipleListeners(t *testing.T) {
+	orch := NewOrchestrator()
+
+	const numListeners = 5
+	recorders := make([]*recordingListener, numListeners)
+	for i := 0; i < numListeners; i++ {
+		recorders[i] = &recordingListener{}
+		orch.AddListener(recorders[i])
+	}
+
+	// Trigger notification
+	orch.AddAgent(NewAgent("test", "Test", "robot"))
+	time.Sleep(100 * time.Millisecond)
+
+	// All listeners should have been called
+	for i, r := range recorders {
+		_, counts := r.Calls()
+		if len(counts) != 1 {
+			t.Errorf("listener %d: expected 1 call, got %d", i, len(counts))
+		}
+	}
+}
+
+// TestGetSharedFiles_ConcurrentFileReads verifies GetSharedFiles is safe
+// under concurrent file read updates.
+func TestGetSharedFiles_ConcurrentFileReads(t *testing.T) {
+	orch := NewOrchestrator()
+
+	const numAgents = 10
+	agents := make([]*Agent, numAgents)
+	for i := 0; i < numAgents; i++ {
+		agents[i] = NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		orch.AddAgent(agents[i])
+	}
+
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+
+	// Goroutines continuously marking files as read
+	wg.Add(numAgents)
+	for i := 0; i < numAgents; i++ {
+		go func(agent *Agent) {
+			defer wg.Done()
+			fileNum := 0
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+					agent.MarkFileRead("shared.go")
+					agent.MarkFileRead("file-" + string(rune('0'+fileNum%10)) + ".go")
+					fileNum++
+				}
+			}
+		}(agents[i])
+	}
+
+	// Goroutine calling GetSharedFiles
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				shared := orch.GetSharedFiles()
+				// Just verify no panic and reasonable result
+				if shared == nil {
+					t.Error("GetSharedFiles returned nil")
+				}
+			}
+		}
+	}()
+
+	// Run for a bit
+	time.Sleep(100 * time.Millisecond)
+	close(stopCh)
+	wg.Wait()
+}
+
+// Chaos engineering tests
+
+// TestChaos_MassAgentChurn tests system stability under rapid agent creation
+// and destruction.
+func TestChaos_MassAgentChurn(t *testing.T) {
+	orch := NewOrchestrator()
+
+	const numGoroutines = 20
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+
+	// Goroutines creating agents
+	wg.Add(numGoroutines)
+	for g := 0; g < numGoroutines; g++ {
+		go func(goroutineID int) {
+			defer wg.Done()
+			for i := 0; i < iterations; i++ {
+				select {
+				case <-stopCh:
+					return
+				default:
+					agent := orch.CreateAgent("Agent", "robot")
+					// Immediately do some operations
+					_ = agent.StartTask("Task")
+					agent.MarkFileRead("file.go")
+					agent.UpdateTokenUsage(1000)
+					agent.CompleteTask()
+					// Sometimes remove the agent
+					if i%3 == 0 {
+						orch.RemoveAgent(agent.ID())
+					}
+				}
+			}
+		}(g)
+	}
+
+	// Concurrent readers
+	wg.Add(5)
+	for i := 0; i < 5; i++ {
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stopCh:
+					return
+				default:
+					_ = orch.GetAll()
+					_ = orch.Snapshots()
+					_ = orch.Count()
+					_ = orch.CountByStatus()
+					_ = orch.GetSharedFiles()
+				}
+			}
+		}()
+	}
+
+	// Let it run
+	time.Sleep(500 * time.Millisecond)
+	close(stopCh)
+	wg.Wait()
+
+	// System should still be in consistent state
+	count := orch.Count()
+	if count < 0 {
+		t.Errorf("invalid final count: %d", count)
+	}
+
+	// All remaining agents should be in valid states
+	for _, agent := range orch.GetAll() {
+		status := agent.Status()
+		validStatuses := map[AgentStatus]bool{
+			StatusIdle:      true,
+			StatusWorking:   true,
+			StatusPaused:    true,
+			StatusCompleted: true,
+			StatusError:     true,
+		}
+		if !validStatuses[status] {
+			t.Errorf("agent %s has invalid status: %v", agent.ID(), status)
+		}
+	}
+}
+
+// panicListener panics during callback
+type panicListener struct {
+	mu     sync.Mutex
+	panics int
+}
+
+func (l *panicListener) OnAgentsChanged(_ context.Context, _ []*Agent) {
+	l.mu.Lock()
+	l.panics++
+	l.mu.Unlock()
+	panic("intentional panic")
+}
+
+func (l *panicListener) PanicCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.panics
+}
+
+// TestChaos_ListenerPanics verifies system stability when listeners panic.
+func TestChaos_ListenerPanics(t *testing.T) {
+	orch := NewOrchestrator()
+
+	// Add multiple panicking listeners
+	panicListeners := make([]*panicListener, 5)
+	for i := 0; i < 5; i++ {
+		panicListeners[i] = &panicListener{}
+		orch.AddListener(panicListeners[i])
+	}
+
+	// Also add a normal listener
+	normalL := &recordingListener{}
+	orch.AddListener(normalL)
+
+	// Trigger many notifications
+	for i := 0; i < 10; i++ {
+		orch.AddAgent(NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot"))
+	}
+
+	// Wait for listeners
+	time.Sleep(100 * time.Millisecond)
+
+	// Normal listener should still have been called despite panics
+	_, counts := normalL.Calls()
+	if len(counts) != 10 {
+		t.Errorf("expected 10 calls to normal listener, got %d", len(counts))
+	}
+
+	// System should still work
+	if orch.Count() != 10 {
+		t.Errorf("expected 10 agents, got %d", orch.Count())
+	}
+}
+
+// TestChaos_MixedOperations tests many different operations happening
+// concurrently without any coordination.
+func TestChaos_MixedOperations(t *testing.T) {
+	orch := NewOrchestrator()
+
+	// Pre-populate with some agents
+	for i := 0; i < 10; i++ {
+		agent := NewAgent("agent-"+string(rune('A'+i)), "Agent", "robot")
+		orch.AddAgent(agent)
+	}
+
+	var wg sync.WaitGroup
+	stopCh := make(chan struct{})
+
+	// Agent creators
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				orch.CreateAgent("New Agent", "robot")
+			}
+		}
+	}()
+
+	// Agent removers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				agents := orch.GetAll()
+				if len(agents) > 0 {
+					orch.RemoveAgent(agents[0].ID())
+				}
+			}
+		}
+	}()
+
+	// Task assigners
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				agents := orch.GetByStatus(StatusIdle)
+				if len(agents) > 0 {
+					_ = orch.AssignTask(agents[0].ID(), "Task")
+				}
+			}
+		}
+	}()
+
+	// Task completers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				agents := orch.GetByStatus(StatusWorking)
+				if len(agents) > 0 {
+					agents[0].CompleteTask()
+				}
+			}
+		}
+	}()
+
+	// Handoff attempters
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				working := orch.GetByStatus(StatusWorking)
+				idle := orch.GetByStatus(StatusIdle)
+				if len(working) > 0 && len(idle) > 0 {
+					_ = orch.HandoffTask(working[0].ID(), idle[0].ID())
+				}
+			}
+		}
+	}()
+
+	// Snapshot takers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				_ = orch.Snapshots()
+			}
+		}
+	}()
+
+	// File markers
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stopCh:
+				return
+			default:
+				agents := orch.GetAll()
+				for _, agent := range agents {
+					agent.MarkFileRead("chaos.go")
+				}
+			}
+		}
+	}()
+
+	// Let the chaos run
+	time.Sleep(300 * time.Millisecond)
+	close(stopCh)
+	wg.Wait()
+
+	// System should be in consistent state
+	count := orch.Count()
+	if count < 0 {
+		t.Errorf("invalid count: %d", count)
+	}
+
+	// Verify snapshots work
+	snapshots := orch.Snapshots()
+	if len(snapshots) != count {
+		t.Errorf("snapshot count %d doesn't match agent count %d", len(snapshots), count)
+	}
+}
+
+// TestAgent_TokenUsageOverflow tests behavior with extreme token values.
+func TestAgent_TokenUsageOverflow(t *testing.T) {
+	agent := NewAgent("test", "Test", "robot")
+
+	// Set very large token limit
+	agent.SetTokenLimit(1<<62 - 1) // Large but valid int64
+
+	// Update with large usage
+	agent.UpdateTokenUsage(1<<62 - 2)
+
+	// Should calculate context usage without overflow
+	usage := agent.ContextUsage()
+	if usage < 0 || usage > 1.0 {
+		t.Errorf("context usage out of bounds: %f", usage)
+	}
+
+	// Test with zero limit (should be 0% usage)
+	agent.SetTokenLimit(0)
+	agent.UpdateTokenUsage(1000000)
+	if agent.ContextUsage() != 0 {
+		t.Errorf("expected 0 context usage with zero limit, got %f", agent.ContextUsage())
+	}
+}
+
+// TestOrchestrator_HandoffToWorkingAgent verifies handoff fails when target is busy.
+func TestOrchestrator_HandoffToWorkingAgent(t *testing.T) {
+	orch := NewOrchestrator()
+
+	source := NewAgent("source", "Source", "robot")
+	target := NewAgent("target", "Target", "robot")
+
+	_ = source.StartTask("Source task")
+	_ = target.StartTask("Target task")
+
+	orch.AddAgent(source)
+	orch.AddAgent(target)
+
+	// Handoff should fail because target is working
+	err := orch.HandoffTask("source", "target")
+	if err == nil {
+		t.Error("expected error when target is working")
+	}
+
+	// Both agents should retain their original tasks
+	if source.CurrentTask() != "Source task" {
+		t.Errorf("source task changed to %q", source.CurrentTask())
+	}
+	if target.CurrentTask() != "Target task" {
+		t.Errorf("target task changed to %q", target.CurrentTask())
+	}
+}

@@ -248,8 +248,13 @@ func (o *Orchestrator) AssignTask(agentID string, taskDescription string) error 
 
 // HandoffTask transfers a task from one agent to another.
 // The source agent is paused and the target agent starts the task.
-// The operation uses atomic StartTask on the target to prevent race conditions.
+// The operation is atomic - both agents are locked in consistent order to prevent
+// TOCTOU races and deadlocks.
 func (o *Orchestrator) HandoffTask(fromAgentID, toAgentID string) error {
+	if fromAgentID == toAgentID {
+		return fmt.Errorf("cannot handoff task to same agent: %s", fromAgentID)
+	}
+
 	o.mu.RLock()
 	fromAgent, fromExists := o.agents[fromAgentID]
 	toAgent, toExists := o.agents[toAgentID]
@@ -264,22 +269,60 @@ func (o *Orchestrator) HandoffTask(fromAgentID, toAgentID string) error {
 		return fmt.Errorf("target agent not found: %s", toAgentID)
 	}
 
-	// Get the task from the source agent
-	task := fromAgent.CurrentTask()
-	if task == "" {
-		return fmt.Errorf("source agent %s has no active task", fromAgentID)
+	// Atomic transfer using consistent lock ordering
+	_, err := transferTask(fromAgent, toAgent)
+	if err != nil {
+		return err
 	}
-
-	// Start target first (atomic) - if this fails, we don't pause the source
-	if err := toAgent.StartTask(task); err != nil {
-		return fmt.Errorf("cannot handoff: %w", err)
-	}
-
-	// Only pause source after target successfully started
-	fromAgent.PauseTask()
 
 	o.notifyListeners(listeners)
 	return nil
+}
+
+// transferTask atomically transfers a task from one agent to another.
+// It locks both agents in consistent order (by ID) to prevent deadlocks.
+// Returns the transferred task description, or error if transfer fails.
+//
+// # TOCTOU Race Prevention
+//
+// This function prevents the Time-Of-Check-Time-Of-Use race that would occur
+// if we read source.CurrentTask() then called target.StartTask() separately.
+// Between those calls, another goroutine could complete or modify the source's task.
+// By holding both locks, we ensure the check and use happen atomically.
+func transferTask(from, to *Agent) (string, error) {
+	// Lock in consistent order by ID to prevent deadlock.
+	// Without consistent ordering, goroutine A locking (agent1, agent2) and
+	// goroutine B locking (agent2, agent1) could deadlock.
+	first, second := from, to
+	if from.id > to.id {
+		first, second = to, from
+	}
+
+	first.mu.Lock()
+	defer first.mu.Unlock()
+	second.mu.Lock()
+	defer second.mu.Unlock()
+
+	// Now check AND transfer atomically
+	task := from.currentTask
+	if task == "" {
+		return "", fmt.Errorf("source agent %s has no active task", from.id)
+	}
+
+	if to.status == StatusWorking {
+		return "", fmt.Errorf("target agent %s is already working on: %s", to.id, to.currentTask)
+	}
+
+	// Transfer: start target, pause source
+	to.status = StatusWorking
+	to.currentTask = task
+	to.lastActivity = time.Now()
+	to.lastError = nil
+
+	from.status = StatusPaused
+	from.lastActivity = time.Now()
+
+	return task, nil
 }
 
 // AddListener registers a listener for orchestrator events.
