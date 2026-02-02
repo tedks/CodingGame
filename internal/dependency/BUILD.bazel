@@ -12,7 +12,11 @@ go_library(
 
 go_test(
     name = "dependency_test",
-    srcs = ["extract_test.go"],
+    srcs = [
+        "benchmark_test.go",
+        "extract_test.go",
+        "fuzz_test.go",
+    ],
     embed = [":dependency"],
     deps = [
         "//internal/connection",

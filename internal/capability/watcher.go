@@ -15,35 +15,39 @@ import (
 //
 // # Concurrency
 //
-// mu protects: registry, pollInterval, running, stopCh, newTicker.
+// mu protects: registry, pollInterval, running, lifecycle, newTicker.
 // fileTimesMu protects: fileTimes.
 //
-// Goroutines:
-// - poll: started by Start, exits when stopCh is closed.
+// Each Start() creates a new lifecycle with its own WaitGroup and stopCh.
+// This prevents WaitGroup reuse races when Start/Stop are called concurrently.
 //
-// Channel: stopCh (chan struct{})
-// - Created by: Start
-// - Closed by: Stop
-// - Read by: poll
+// Goroutines:
+// - poll: started by Start, exits when lifecycle.stopCh is closed.
 //
 // # State machine
 //
 // Idle -> Running -> Stopped
 // Start is idempotent; Stop is idempotent. A watcher may be restarted after Stop,
-// which creates a new stopCh and poll goroutine.
+// which creates a new lifecycle.
 type Watcher struct {
 	mu sync.Mutex
 
 	registry     *Registry
 	pollInterval time.Duration
 	running      bool
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
+	lifecycle    *watcherLifecycle // Current lifecycle, nil when not running
 	newTicker    func(time.Duration) ticker
 
 	// File modification times for change detection
 	fileTimesMu sync.Mutex
 	fileTimes   map[string]time.Time
+}
+
+// watcherLifecycle represents a single Start/Stop cycle.
+// Each Start() creates a new lifecycle to prevent WaitGroup reuse issues.
+type watcherLifecycle struct {
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // WatcherSnapshot is an immutable, point-in-time view of watcher state.
@@ -115,15 +119,20 @@ func (w *Watcher) Start() error {
 	interval := w.pollInterval
 	newTicker := w.newTicker
 	w.running = true
-	w.stopCh = make(chan struct{})
+
+	// Create a new lifecycle to avoid WaitGroup reuse issues
+	lc := &watcherLifecycle{
+		stopCh: make(chan struct{}),
+	}
+	lc.wg.Add(1)
+	w.lifecycle = lc
 	w.mu.Unlock()
 
 	// Initialize file times
 	w.updateFileTimes()
 
-	// Start polling goroutine
-	w.wg.Add(1)
-	go w.poll(interval, newTicker)
+	// Start polling goroutine with lifecycle reference to avoid races
+	go w.poll(interval, newTicker, lc)
 
 	return nil
 }
@@ -135,11 +144,15 @@ func (w *Watcher) Stop() error {
 		w.mu.Unlock()
 		return nil // Not running
 	}
+	// Capture lifecycle before unlocking to avoid races
+	lc := w.lifecycle
 	w.running = false
-	close(w.stopCh)
+	w.lifecycle = nil
+	close(lc.stopCh)
 	w.mu.Unlock()
 
-	w.wg.Wait()
+	// Wait on our lifecycle's WaitGroup (not shared, so no reuse race)
+	lc.wg.Wait()
 	return nil
 }
 
@@ -169,15 +182,16 @@ func (w *Watcher) Snapshot() WatcherSnapshot {
 }
 
 // poll is the main polling loop.
-func (w *Watcher) poll(interval time.Duration, newTicker func(time.Duration) ticker) {
-	defer w.wg.Done()
+// lc is passed as a parameter to avoid data races when accessing stopCh and wg.
+func (w *Watcher) poll(interval time.Duration, newTicker func(time.Duration) ticker, lc *watcherLifecycle) {
+	defer lc.wg.Done()
 
 	ticker := newTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-w.stopCh:
+		case <-lc.stopCh:
 			return
 		case <-ticker.Channel():
 			if w.checkForChanges() {

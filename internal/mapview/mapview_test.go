@@ -1,13 +1,36 @@
 package mapview
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/tedks/CodingGame/internal/testutil"
 	"github.com/tedks/CodingGame/internal/tile"
 )
+
+// Test helper functions
+
+// createManyTiles creates n test tiles for performance testing.
+func createManyTiles(n int) []*tile.Tile {
+	tiles := make([]*tile.Tile, n)
+	for i := 0; i < n; i++ {
+		path := filepath.Join("/test", "file"+string(rune('a'+i%26))+string(rune('0'+i/26%10))+".go")
+		tiles[i] = tile.New(path, filepath.Base(path), false)
+	}
+	return tiles
+}
+
+// assertFloatNear fails if got and want differ by more than tolerance.
+func assertFloatNear(t *testing.T, got, want, tolerance float64, msg string) {
+	t.Helper()
+	if diff := math.Abs(got - want); diff > tolerance {
+		t.Errorf("%s: got %.6f, want %.6f (diff %.6f > tolerance %.6f)", msg, got, want, diff, tolerance)
+	}
+}
 
 func TestNew(t *testing.T) {
 	// Create a temporary directory for testing
@@ -707,4 +730,449 @@ func TestDrawDataflowViewTilesPerRowZeroGuard(t *testing.T) {
 	}()
 
 	m.drawDataflowView(nil, 0, 0)
+}
+
+// --- Coordinate Math Tests ---
+
+func TestZoomCyclePrecisionDrift(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	mapView.panX = 100.0
+	mapView.panY = 75.0
+	initialX := mapView.panX
+	initialY := mapView.panY
+
+	for i := 0; i < 100; i++ {
+		mapView.ZoomIn()
+		mapView.ZoomOut()
+	}
+
+	driftX := math.Abs(mapView.panX - initialX)
+	driftY := math.Abs(mapView.panY - initialY)
+	totalDrift := driftX + driftY
+
+	if totalDrift > 1.0 {
+		t.Errorf("Pan drifted %.6f pixels after 100 zoom cycles (X: %.6f, Y: %.6f)",
+			totalDrift, driftX, driftY)
+	}
+}
+
+func TestTileAtScreenPos_NegativeCoordinates(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	result := mapView.TileAtScreenPos(-100, -100)
+	if result != nil {
+		t.Error("expected nil tile at negative coordinates")
+	}
+
+	result = mapView.TileAtScreenPos(-1000000, -1000000)
+	if result != nil {
+		t.Error("expected nil tile at extreme negative coordinates")
+	}
+}
+
+func TestTileAtScreenPos_ExtremePositiveCoordinates(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	result := mapView.TileAtScreenPos(1<<20, 1<<20)
+	if result != nil {
+		t.Error("expected nil tile at extreme positive coordinates")
+	}
+
+	result = mapView.TileAtScreenPos(math.MaxInt32, math.MaxInt32)
+	if result != nil {
+		t.Error("expected nil tile at MaxInt32 coordinates")
+	}
+}
+
+func TestEffectiveSizeNeverNegative(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	zoomLevels := []ZoomLevel{ZoomOverview, ZoomWorld, ZoomRegion, ZoomCity, ZoomStreet, ZoomInterior}
+	for _, zoom := range zoomLevels {
+		mapView.zoomLevel = zoom
+		tileSize := mapView.getTileSize()
+		effectiveSize := tileSize - TileBorderSpacing
+
+		if effectiveSize <= 0 {
+			t.Errorf("effectiveSize <= 0 at zoom %d: tileSize=%.2f", zoom, tileSize)
+		}
+	}
+}
+
+// --- Zoom/Pan Boundary Tests ---
+
+func TestZoomLevelSymmetry(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	for startZoom := ZoomOverview; startZoom <= ZoomInterior; startZoom++ {
+		mapView.zoomLevel = startZoom
+		mapView.panX = 100.0
+		mapView.panY = 50.0
+
+		initialPanX := mapView.panX
+		initialPanY := mapView.panY
+
+		if startZoom < ZoomInterior {
+			mapView.ZoomIn()
+			mapView.ZoomOut()
+
+			if mapView.zoomLevel != startZoom {
+				t.Errorf("zoom level not symmetric: started at %d, ended at %d", startZoom, mapView.zoomLevel)
+			}
+
+			assertFloatNear(t, mapView.panX, initialPanX, 0.001, "panX not symmetric after ZoomIn+ZoomOut")
+			assertFloatNear(t, mapView.panY, initialPanY, 0.001, "panY not symmetric after ZoomIn+ZoomOut")
+		}
+
+		mapView.zoomLevel = startZoom
+		mapView.panX = initialPanX
+		mapView.panY = initialPanY
+
+		if startZoom > ZoomOverview {
+			mapView.ZoomOut()
+			mapView.ZoomIn()
+
+			if mapView.zoomLevel != startZoom {
+				t.Errorf("zoom level not symmetric: started at %d, ended at %d", startZoom, mapView.zoomLevel)
+			}
+
+			assertFloatNear(t, mapView.panX, initialPanX, 0.001, "panX not symmetric after ZoomOut+ZoomIn")
+			assertFloatNear(t, mapView.panY, initialPanY, 0.001, "panY not symmetric after ZoomOut+ZoomIn")
+		}
+	}
+}
+
+func TestPanBoundsAtExtremeZoom(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for i := 0; i < 10; i++ {
+		testFile := filepath.Join(tmpDir, "file"+string(rune('a'+i))+".go")
+		if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	mapView.zoomLevel = ZoomOverview
+
+	extremePans := []struct {
+		panX, panY float64
+	}{
+		{10000, 10000},
+		{-10000, -10000},
+		{0, 0},
+		{1000000, 0},
+		{0, 1000000},
+	}
+
+	for _, ep := range extremePans {
+		mapView.panX = ep.panX
+		mapView.panY = ep.panY
+
+		tileSize := mapView.getTileSize()
+		viewX := -mapView.panX
+		viewY := -mapView.panY - float64(TopPadding)*tileSize
+		visible := mapView.treeLayout.VisibleNodes(viewX, viewY, float64(mapView.width), float64(mapView.height))
+		_ = visible
+	}
+
+	mapView.panX = 0
+	mapView.panY = 0
+	tileSize := mapView.getTileSize()
+	viewX := -mapView.panX
+	viewY := -mapView.panY - float64(TopPadding)*tileSize
+	visible := mapView.treeLayout.VisibleNodes(viewX, viewY, float64(mapView.width), float64(mapView.height))
+
+	if len(visible) == 0 {
+		t.Error("expected some visible tiles at origin pan with ZoomOverview")
+	}
+}
+
+// --- Performance Tests ---
+
+func TestVisibleNodesCullingEfficiency(t *testing.T) {
+	tiles := createManyTiles(10000)
+	tileSize := 64.0
+	layout := NewTreeLayout(tiles, tileSize)
+
+	viewportWidth := 800.0
+	viewportHeight := 600.0
+
+	totalWidth := layout.TotalWidth()
+	totalHeight := layout.TotalHeight()
+	viewX := totalWidth/2 - viewportWidth/2
+	viewY := totalHeight/2 - viewportHeight/2
+
+	visible := layout.VisibleNodes(viewX, viewY, viewportWidth, viewportHeight)
+
+	maxReasonableVisible := 200
+
+	if len(visible) > maxReasonableVisible {
+		t.Errorf("culling inefficient: %d tiles visible out of 10000 (expected < %d)",
+			len(visible), maxReasonableVisible)
+	}
+
+	if len(visible) == 0 {
+		t.Error("no tiles visible - culling may be too aggressive or layout is broken")
+	}
+}
+
+func TestTileAtScreenPosPerformance(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	for i := 0; i < 100; i++ {
+		testFile := filepath.Join(tmpDir, "file"+string(rune('a'+i%26))+string(rune('0'+i/26))+".go")
+		if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+			t.Fatalf("failed to create test file: %v", err)
+		}
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	_ = mapView.TileAtScreenPos(100, 100)
+
+	start := time.Now()
+	for i := 0; i < 10000; i++ {
+		x := (i * 7) % 800
+		y := (i * 11) % 600
+		_ = mapView.TileAtScreenPos(x, y)
+	}
+	elapsed := time.Since(start)
+
+	maxDuration := 100 * time.Millisecond
+	if elapsed > maxDuration {
+		t.Errorf("TileAtScreenPos too slow: 10K lookups took %v (expected < %v)",
+			elapsed, maxDuration)
+	}
+}
+
+// --- Mouse Interaction Tests ---
+
+func TestDragThresholdBoundary(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	input := testutil.NewTestInputSource()
+	mapView.SetInputSource(input)
+
+	var selectCalled bool
+	mapView.SetOnTileSelect(func(t *tile.Tile) {
+		selectCalled = true
+	})
+
+	input.QueueMouseMove(100, 100)
+	input.QueueMouseClick(ebiten.MouseButtonLeft)
+	input.AdvanceFrame()
+	mapView.Update()
+
+	initialPanX := mapView.panX
+
+	input.QueueMouseMove(100+DragThreshold-1, 100)
+	input.AdvanceFrame()
+	mapView.Update()
+
+	input.QueueMouseRelease(ebiten.MouseButtonLeft)
+	input.AdvanceFrame()
+	mapView.Update()
+
+	if mapView.panX != initialPanX {
+		t.Errorf("pan changed during click (under threshold): delta = %.2f", mapView.panX-initialPanX)
+	}
+
+	selectCalled = false
+	input.Clear()
+
+	input.QueueMouseMove(200, 200)
+	input.QueueMouseClick(ebiten.MouseButtonLeft)
+	input.AdvanceFrame()
+	mapView.Update()
+
+	initialPanX = mapView.panX
+
+	input.QueueMouseMove(200+DragThreshold+1, 200)
+	input.AdvanceFrame()
+	mapView.Update()
+
+	if mapView.panX == initialPanX {
+		t.Error("pan did not change during drag (over threshold)")
+	}
+
+	input.QueueMouseRelease(ebiten.MouseButtonLeft)
+	input.AdvanceFrame()
+	mapView.Update()
+
+	if selectCalled {
+		t.Error("select callback was called on drag (should only be called on click)")
+	}
+}
+
+func TestDoubleClickDistanceIsManhattan(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	var doubleClickCount int
+
+	mapView.SetOnTileDoubleClick(func(t *tile.Tile) {
+		doubleClickCount++
+	})
+
+	mapView.handleTileClick(10, 10, DoubleClickIntervalMs)
+	mapView.handleTileClick(10+7, 10+7, DoubleClickIntervalMs)
+
+	if doubleClickCount > 0 {
+		t.Error("14 Manhattan distance triggered double-click (expected single click)")
+	}
+
+	doubleClickCount = 0
+
+	mapView.handleTileClick(50, 50, DoubleClickIntervalMs)
+	mapView.handleTileClick(50+5, 50+4, DoubleClickIntervalMs)
+
+	if doubleClickCount != 1 {
+		t.Errorf("9 Manhattan distance did not trigger double-click (got %d)", doubleClickCount)
+	}
+}
+
+func TestRapidClickSequence(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mapview-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	testFile := filepath.Join(tmpDir, "test.go")
+	if err := os.WriteFile(testFile, []byte("package main"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	mapView, err := New(tmpDir, 800, 600)
+	if err != nil {
+		t.Fatalf("failed to create map view: %v", err)
+	}
+
+	var singleClickCount int
+	var doubleClickCount int
+
+	mapView.SetOnTileSelect(func(t *tile.Tile) {
+		singleClickCount++
+	})
+	mapView.SetOnTileDoubleClick(func(t *tile.Tile) {
+		doubleClickCount++
+	})
+
+	pos := 10
+
+	for i := 0; i < 5; i++ {
+		mapView.handleTileClick(pos, pos, DoubleClickIntervalMs)
+	}
+
+	if singleClickCount < 1 {
+		t.Error("expected at least 1 single click for the first click")
+	}
+
+	if doubleClickCount < 1 {
+		t.Error("expected at least 1 double-click for rapid clicks at same position")
+	}
+
+	totalCallbacks := singleClickCount + doubleClickCount
+	if totalCallbacks != 5 {
+		t.Errorf("expected 5 total callbacks (single + double), got %d", totalCallbacks)
+	}
 }

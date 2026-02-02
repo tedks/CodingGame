@@ -23,6 +23,7 @@ go_library(
 go_test(
     name = "ui_test",
     srcs = [
+        "components_test.go",
         "menu_test.go",
         "prompt_test.go",
         "scene_test.go",
@@ -31,6 +32,7 @@ go_test(
     ],
     embed = [":ui"],
     deps = [
+        "//internal/testutil",
         "@com_github_hajimehoshi_ebiten_v2//:ebiten",
     ],
 )

@@ -2,6 +2,9 @@ package ui
 
 import (
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/tedks/CodingGame/internal/testutil"
 )
 
 func TestNewStartScreen(t *testing.T) {
@@ -208,5 +211,172 @@ func TestGameConfig_ZeroValue(t *testing.T) {
 	}
 	if cfg.ProjectPath != "" {
 		t.Errorf("expected empty ProjectPath, got %q", cfg.ProjectPath)
+	}
+}
+
+// Tests with TestInputSource for input injection
+
+func TestStartScreen_BackspaceEmptyInput(t *testing.T) {
+	ss := NewStartScreen(800, 600, nil)
+	ss.projectInputMode = true
+	ss.projectInput = ""
+
+	source := testutil.NewTestInputSource()
+	ss.SetInputSource(source)
+
+	source.QueueKeyPress(ebiten.KeyBackspace)
+	source.AdvanceFrame()
+
+	_, err := ss.Update()
+	if err != nil {
+		t.Fatalf("Update() returned error: %v", err)
+	}
+
+	if ss.projectInput != "" {
+		t.Errorf("expected projectInput to remain empty, got %q", ss.projectInput)
+	}
+}
+
+func TestStartScreen_UnicodeInput(t *testing.T) {
+	ss := NewStartScreen(800, 600, nil)
+	ss.projectInputMode = true
+	ss.projectInput = ""
+
+	source := testutil.NewTestInputSource()
+	ss.SetInputSource(source)
+
+	source.QueueCharInput('世', '界', '🌍')
+	source.AdvanceFrame()
+
+	_, err := ss.Update()
+	if err != nil {
+		t.Fatalf("Update() returned error: %v", err)
+	}
+
+	expected := "世界🌍"
+	if ss.projectInput != expected {
+		t.Errorf("expected projectInput=%q, got %q", expected, ss.projectInput)
+	}
+}
+
+func TestStartScreen_EnterEmptyPath(t *testing.T) {
+	var completedConfig *GameConfig
+	onComplete := func(cfg GameConfig) {
+		completedConfig = &cfg
+	}
+
+	ss := NewStartScreen(800, 600, onComplete)
+	ss.projectInputMode = true
+	ss.projectInput = "   "
+
+	source := testutil.NewTestInputSource()
+	ss.SetInputSource(source)
+
+	source.QueueKeyPress(ebiten.KeyEnter)
+	source.AdvanceFrame()
+
+	_, err := ss.Update()
+	if err != nil {
+		t.Fatalf("Update() returned error: %v", err)
+	}
+
+	if completedConfig != nil {
+		t.Error("onComplete should not be called for whitespace-only path")
+	}
+	if !ss.projectInputMode {
+		t.Error("should remain in projectInputMode when path is empty")
+	}
+}
+
+func TestStartScreen_TextInputSequence(t *testing.T) {
+	var completedConfig *GameConfig
+	onComplete := func(cfg GameConfig) {
+		completedConfig = &cfg
+	}
+
+	ss := NewStartScreen(800, 600, onComplete)
+	ss.projectInputMode = true
+	ss.projectInput = ""
+
+	source := testutil.NewTestInputSource()
+	ss.SetInputSource(source)
+
+	for _, char := range "/home/user/project" {
+		source.QueueCharInput(char)
+		source.AdvanceFrame()
+		_, err := ss.Update()
+		if err != nil {
+			t.Fatalf("Update() returned error: %v", err)
+		}
+	}
+
+	if ss.projectInput != "/home/user/project" {
+		t.Errorf("expected projectInput=%q, got %q", "/home/user/project", ss.projectInput)
+	}
+
+	source.QueueKeyPress(ebiten.KeyEnter)
+	source.AdvanceFrame()
+
+	_, err := ss.Update()
+	if err != nil {
+		t.Fatalf("Update() returned error: %v", err)
+	}
+
+	if completedConfig == nil {
+		t.Fatal("expected onComplete to be called")
+	}
+	if completedConfig.ProjectPath != "/home/user/project" {
+		t.Errorf("expected ProjectPath=%q, got %q", "/home/user/project", completedConfig.ProjectPath)
+	}
+}
+
+func TestStartScreen_EscapeCancelsInput(t *testing.T) {
+	ss := NewStartScreen(800, 600, nil)
+	ss.projectInputMode = true
+	ss.projectInput = "/some/path"
+
+	source := testutil.NewTestInputSource()
+	ss.SetInputSource(source)
+
+	source.QueueKeyPress(ebiten.KeyEscape)
+	source.AdvanceFrame()
+
+	_, err := ss.Update()
+	if err != nil {
+		t.Fatalf("Update() returned error: %v", err)
+	}
+
+	if ss.projectInputMode {
+		t.Error("expected projectInputMode=false after Escape")
+	}
+}
+
+func TestStartScreen_BackspaceDeletesCharacter(t *testing.T) {
+	ss := NewStartScreen(800, 600, nil)
+	ss.projectInputMode = true
+	ss.projectInput = "test"
+
+	source := testutil.NewTestInputSource()
+	ss.SetInputSource(source)
+
+	source.QueueKeyPress(ebiten.KeyBackspace)
+	source.AdvanceFrame()
+
+	_, err := ss.Update()
+	if err != nil {
+		t.Fatalf("Update() returned error: %v", err)
+	}
+
+	if ss.projectInput != "tes" {
+		t.Errorf("expected projectInput=%q after backspace, got %q", "tes", ss.projectInput)
+	}
+}
+
+func TestStartScreen_SetInputSource_Nil(t *testing.T) {
+	ss := NewStartScreen(800, 600, nil)
+	ss.SetInputSource(nil)
+
+	if ss.inputSource == nil {
+		t.Error("inputSource should not be nil after SetInputSource(nil)")
 	}
 }

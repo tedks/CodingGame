@@ -219,3 +219,57 @@ func TestMenu_MoveSelection_AllDisabled(t *testing.T) {
 		t.Errorf("expected selection to remain at %d, got %d", initialIndex, menu.SelectedIndex)
 	}
 }
+
+// Tests for menu state edge cases
+
+func TestMenu_SelectedIndexInvalidAfterShrink(t *testing.T) {
+	items := []*MenuItem{
+		NewMenuItem("Item 1"),
+		NewMenuItem("Item 2"),
+		NewMenuItem("Item 3"),
+	}
+	menu := NewMenu("Test", items)
+	menu.SelectedIndex = 2
+	menu.Items = menu.Items[:1]
+
+	selected := menu.SelectedItem()
+	if selected != nil {
+		t.Error("expected nil for SelectedItem after shrinking items below SelectedIndex")
+	}
+}
+
+func TestMenu_CenterExtremeAspect_Narrow(t *testing.T) {
+	menu := NewMenu("Test", []*MenuItem{NewMenuItem("Item 1")})
+	menu.Width = 500
+
+	menu.Center(100, 600)
+
+	if menu.X >= 0 {
+		t.Errorf("expected negative X for menu wider than screen, got %d", menu.X)
+	}
+	expectedX := (100 - 500) / 2
+	if menu.X != expectedX {
+		t.Errorf("expected X=%d, got %d", expectedX, menu.X)
+	}
+}
+
+func TestMenu_CenterExtremeAspect_Wide(t *testing.T) {
+	menu := NewMenu("Test", []*MenuItem{NewMenuItem("Item 1")})
+	menu.Width = 100
+
+	menu.Center(2000, 100)
+
+	expectedX := (2000 - 100) / 2
+	if menu.X != expectedX {
+		t.Errorf("expected X=%d for wide screen, got %d", expectedX, menu.X)
+	}
+}
+
+func TestMenu_SetInputSource_Nil(t *testing.T) {
+	menu := NewMenu("Test", []*MenuItem{NewMenuItem("Item")})
+	menu.SetInputSource(nil)
+
+	if menu.inputSource == nil {
+		t.Error("inputSource should not be nil after SetInputSource(nil)")
+	}
+}
