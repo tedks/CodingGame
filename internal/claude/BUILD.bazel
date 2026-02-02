@@ -9,6 +9,10 @@ go_library(
 
 go_test(
     name = "claude_test",
-    srcs = ["interceptor_test.go"],
+    srcs = [
+        "interceptor_benchmark_test.go",
+        "interceptor_fuzz_test.go",
+        "interceptor_test.go",
+    ],
     embed = [":claude"],
 )
