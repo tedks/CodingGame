@@ -458,3 +458,117 @@ func TestPromptPanel_HandleScroll(t *testing.T) {
 		t.Error("HandleScroll should return true for scroll inside panel")
 	}
 }
+
+// Tests for text wrapping edge cases
+
+func TestPromptPanel_WrapText_WordLongerThanLine(t *testing.T) {
+	p := NewPromptPanel(200)
+	longWord := "supercalifragilisticexpialidocious_and_then_some_more_text"
+	lines := p.wrapText(longWord, 100)
+
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line for single long word, got %d", len(lines))
+	}
+	if lines[0] != longWord {
+		t.Errorf("expected word to remain intact, got %q", lines[0])
+	}
+}
+
+func TestPromptPanel_WrapText_WhitespaceOnly(t *testing.T) {
+	p := NewPromptPanel(800)
+	lines := p.wrapText("   \t   ", 200)
+
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line for whitespace-only, got %d", len(lines))
+	}
+	if lines[0] != "" {
+		t.Errorf("expected empty string for whitespace-only, got %q", lines[0])
+	}
+}
+
+func TestPromptPanel_WrapText_ZeroMaxWidth(t *testing.T) {
+	p := NewPromptPanel(800)
+	lines := p.wrapText("Hello world", 0)
+
+	if len(lines) == 0 {
+		t.Error("expected at least 1 line for zero maxWidth")
+	}
+}
+
+func TestPromptPanel_WrapText_Unicode(t *testing.T) {
+	p := NewPromptPanel(800)
+	text := "Hello 世界 مرحبا 🌍 café"
+	lines := p.wrapText(text, 200)
+
+	if len(lines) == 0 {
+		t.Error("expected at least 1 line for unicode text")
+	}
+}
+
+// Tests for animation boundary conditions
+
+func TestPromptPanel_AnimationOvershoot(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.AddUserMessage("test message")
+	p.SetResponseText("response")
+
+	targetHeight := p.targetHeight
+	p.currentHeight = targetHeight - AnimationSpeed + 1
+
+	p.Update()
+
+	if p.currentHeight != targetHeight {
+		t.Errorf("expected currentHeight to clamp to %d, got %d", targetHeight, p.currentHeight)
+	}
+}
+
+func TestPromptPanel_DragZeroScreenHeight(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(0)
+
+	p.StartDrag(0)
+	p.UpdateDrag(-50)
+
+	if p.Y > 0 {
+		t.Errorf("expected negative or zero Y for zero screen height, got %d", p.Y)
+	}
+	p.EndDrag()
+}
+
+func TestPromptPanel_ScrollDownBelowZero(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+	p.AddUserMessage("test")
+
+	p.ScrollDown()
+	p.ScrollDown()
+	p.ScrollDown()
+
+	if p.scrollOffset < 0 {
+		t.Errorf("scrollOffset went negative: %d", p.scrollOffset)
+	}
+}
+
+func TestPromptPanel_ScrollUpAtMax(t *testing.T) {
+	p := NewPromptPanel(800)
+	p.SetScreenHeight(600)
+
+	for i := 0; i < 30; i++ {
+		p.AddUserMessage("Long message to create scrollable content")
+		p.SetResponseText("Response that adds more content")
+	}
+
+	p.StartDrag(0)
+	p.UpdateDrag(-400)
+	p.EndDrag()
+
+	for i := 0; i < 100; i++ {
+		p.ScrollUp()
+	}
+
+	maxScroll := p.maxScrollOffset()
+	if p.scrollOffset > maxScroll {
+		t.Errorf("scrollOffset exceeded max: %d > %d", p.scrollOffset, maxScroll)
+	}
+}
