@@ -481,3 +481,126 @@ func TestGenerateInsightID_Uniqueness(t *testing.T) {
 		ids[id] = true
 	}
 }
+
+// Edge case tests
+
+// TestEdge_InsightBuilderReuse verifies that reusing a builder doesn't corrupt previous builds
+func TestEdge_InsightBuilderReuse(t *testing.T) {
+	builder := BuildInsight("test")
+
+	i1 := builder.Title("First").Description("First desc").Build()
+	i2 := builder.Title("Second").Description("Second desc").Build()
+
+	// Verify they have different titles (builder reuse doesn't corrupt)
+	if i1.Title == i2.Title {
+		t.Errorf("Builder reuse corrupted: both have title %q", i1.Title)
+	}
+
+	// Verify they have different IDs
+	if i1.ID == i2.ID {
+		t.Errorf("Builder reuse should generate different IDs: both have %q", i1.ID)
+	}
+
+	// Verify original values are preserved
+	if i1.Title != "First" {
+		t.Errorf("First insight title = %q, want 'First'", i1.Title)
+	}
+	if i2.Title != "Second" {
+		t.Errorf("Second insight title = %q, want 'Second'", i2.Title)
+	}
+}
+
+// TestEdge_InsightBuilderMultipleBuilds verifies multiple builds are independent
+func TestEdge_InsightBuilderMultipleBuilds(t *testing.T) {
+	builder := BuildInsight("security").
+		Severity(SeverityCritical).
+		Category(CategorySecurity)
+
+	// Build multiple insights
+	insights := make([]*Insight, 10)
+	for i := 0; i < 10; i++ {
+		insights[i] = builder.Build()
+	}
+
+	// All should have unique IDs
+	ids := make(map[string]bool)
+	for i, insight := range insights {
+		if ids[insight.ID] {
+			t.Errorf("Insight %d has duplicate ID: %s", i, insight.ID)
+		}
+		ids[insight.ID] = true
+
+		// All should have same severity and category from builder
+		if insight.Severity != SeverityCritical {
+			t.Errorf("Insight %d severity = %v, want critical", i, insight.Severity)
+		}
+		if insight.Category != CategorySecurity {
+			t.Errorf("Insight %d category = %v, want security", i, insight.Category)
+		}
+	}
+}
+
+// TestEdge_EmptyInsightFields tests insights with empty fields
+func TestEdge_EmptyInsightFields(t *testing.T) {
+	// Empty advisorID is allowed
+	insight := NewInsight("", "", "", SeverityInfo, CategoryGeneral)
+
+	if insight.ID == "" {
+		t.Error("ID should still be generated for empty fields")
+	}
+	if insight.State != InsightStatePending {
+		t.Errorf("State = %v, want pending", insight.State)
+	}
+}
+
+// TestEdge_InsightStateTransitions tests state transition edge cases
+func TestEdge_InsightStateTransitions(t *testing.T) {
+	insight := NewInsight("test", "Title", "Desc", SeverityInfo, CategoryGeneral)
+
+	// Accept then reject - last write wins
+	insight.Accept()
+	insight.Reject()
+
+	if insight.State != InsightStateRejected {
+		t.Errorf("State = %v, want rejected after Accept->Reject", insight.State)
+	}
+
+	// Should still be resolved
+	if !insight.IsResolved() {
+		t.Error("Should be resolved after rejection")
+	}
+
+	// IsPending should be false
+	if insight.IsPending() {
+		t.Error("Should not be pending after rejection")
+	}
+}
+
+// TestEdge_GetStateMethods tests the new thread-safe getter methods
+func TestEdge_GetStateMethods(t *testing.T) {
+	insight := NewInsight("test", "Title", "Desc", SeverityInfo, CategoryGeneral)
+
+	// Check initial state
+	if insight.GetState() != InsightStatePending {
+		t.Errorf("GetState() = %v, want pending", insight.GetState())
+	}
+
+	initialTime := insight.GetStateTime()
+	if initialTime.IsZero() {
+		t.Error("GetStateTime() should not be zero")
+	}
+
+	// Modify state
+	time.Sleep(time.Millisecond)
+	insight.Accept()
+
+	// Check updated state
+	if insight.GetState() != InsightStateAccepted {
+		t.Errorf("GetState() = %v, want accepted", insight.GetState())
+	}
+
+	// Check time was updated
+	if !insight.GetStateTime().After(initialTime) {
+		t.Error("GetStateTime() should be updated after Accept()")
+	}
+}
